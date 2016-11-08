@@ -23,12 +23,24 @@ cols <- c("numeric", rep("text", 2), rep("numeric", 2), rep("date", 2),
           rep("numeric", 2), rep("text", 22), rep("numeric", 7))
 
 main <- read_excel(xls, sheet = "Mainsheet", col_types = cols, na = "N/A") %>%
-    filter(!is.na(`Patient Number`))
+    rename(patient = `Patient Number`) %>%
+    filter(!is.na(patient))
 
 # fixed 8 errors with date/times; see fixes.Rds
-xray <- read_excel(xls, sheet = "Radiographic")
+xray <- read_excel(xls, sheet = "Radiographic") %>%
+    rename(patient = `Patient Number`) %>%
+    filter(!is.na(patient))
 
 # rename "Blood Pressure Readings " tab to remove spaces (note trailing space)
-bp <- read_excel(xls, sheet = "Blood_Pressure_Readings")
+# convert to number, rows 5003 to 7924
+bp <- read_excel(xls, sheet = "Blood_Pressure_Readings") %>%
+    rename(patient = `Patient Number`) %>%
+    filter(!is.na(patient))
 
-location <- read_excel(xls, sheet = "DailyLocationBPLabs_NEW")
+location <- read_excel(xls, sheet = "DailyLocationBPLabs_NEW") %>%
+    rename(patient = `Patient number`) %>%
+    filter(!is.na(patient))
+
+meds <- read_excel(xls, sheet = "Medications") %>%
+    rename(patient = `Patient Number`) %>%
+    filter(!is.na(patient))
