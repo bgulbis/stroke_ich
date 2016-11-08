@@ -1,5 +1,6 @@
 library(tidyverse)
 library(readxl)
+library(stringr)
 
 xls <- "BP Datasheet_10_27_Final.xls"
 
@@ -34,7 +35,8 @@ xray <- read_excel(xls, sheet = "Radiographic") %>%
 # rename "Blood Pressure Readings " tab to remove spaces (note trailing space)
 # convert to number, rows 5003 to 7924
 bp <- read_excel(xls, sheet = "Blood_Pressure_Readings") %>%
-    rename(patient = `Patient Number`) %>%
+    rename(patient = `Patient Number`,
+           bp_datetime = `Date/Time`) %>%
     filter(!is.na(patient))
 
 location <- read_excel(xls, sheet = "DailyLocationBPLabs_NEW") %>%
@@ -42,5 +44,25 @@ location <- read_excel(xls, sheet = "DailyLocationBPLabs_NEW") %>%
     filter(!is.na(patient))
 
 meds <- read_excel(xls, sheet = "Medications") %>%
-    rename(patient = `Patient Number`) %>%
+    rename(patient = `Patient Number`,
+           med = `Antihypertensive Medication`,
+           route = Route,
+           dose = `Dose/Rate (mg or mg/hr)`,
+           admin_datetime = `Administration Date/Time`) %>%
+    mutate(scheduled = `Scheduled/PRN` == "Scheduled") %>%
+    dmap_at("med", str_to_lower) %>%
+    dmap_at("med", str_trim, side = "both") %>%
+    dmap_at("med", str_replace_all, pattern = "no anti-htn.*", "none") %>%
+    select(-`Scheduled/PRN`) %>%
     filter(!is.na(patient))
+
+data_tidy <- main %>%
+    mutate(length_stay = as.numeric(difftime(`Discharge Date/Time`, `Admission Date/Time`, units = "hours")))
+
+data_bp <- bp %>%
+    group_by(patient) %>%
+    arrange(bp_datetime) %>%
+    summarize(first_sbp = first(SBP),
+              first_dbp = first(DBP),
+              last_sbp = last(SBP),
+              last_dbp = last(DBP))
