@@ -24,7 +24,8 @@ cols <- c("numeric", rep("text", 2), rep("numeric", 2), rep("date", 2),
           rep("numeric", 2), rep("text", 22), rep("numeric", 7))
 
 main <- read_excel(xls, sheet = "Mainsheet", col_types = cols, na = "N/A") %>%
-    rename(patient = `Patient Number`) %>%
+    rename(patient = `Patient Number`,
+           pmh_htn = `PMH - Hypertension`) %>%
     filter(!is.na(patient))
 
 # fixed 8 errors with date/times; see fixes.Rds
@@ -75,3 +76,9 @@ data_meds <- meds %>%
     spread(scheduled, num_meds) %>%
     mutate(num_meds = sum(num_scheduled, num_prn, num_unknown, na.rm = TRUE))
 
+data_meds_common <- meds %>%
+    left_join(main[c("patient", "pmh_htn")], by = "patient") %>%
+    distinct(patient, med, pmh_htn) %>%
+    group_by(pmh_htn) %>%
+    count(med) %>%
+    arrange(pmh_htn, desc(n), med)
