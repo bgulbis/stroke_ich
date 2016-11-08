@@ -16,16 +16,19 @@ xls <- "BP Datasheet_10_27_Final.xls"
 # fix row 33, row 36; tPA administration date/time - convert unknown to N/A
 # fix row 56, Total number of antihypertensives at home - convert to number
 # fix row 86, Total number of antihypertensive medications at discharge
+# convert to number, tPA dosing, rows 1, 4, 21, 33
 
 # set column types
 cols <- c("numeric", rep("text", 2), rep("numeric", 2), rep("date", 2),
-          "numeric", rep("text", 3), rep("numeric", 2), rep("text", 3), "date",
-          rep("text", 38), "numeric", rep("date", 3), rep("text", 4),
-          rep("numeric", 2), rep("text", 22), rep("numeric", 7))
+          "numeric", rep("text", 3), rep("numeric", 2), rep("text", 2),
+          "numeric", "date", rep("text", 38), "numeric", rep("date", 3),
+          rep("text", 4), rep("numeric", 2), rep("text", 22), rep("numeric", 7))
 
 main <- read_excel(xls, sheet = "Mainsheet", col_types = cols, na = "N/A") %>%
     rename(patient = `Patient Number`,
-           pmh_htn = `PMH - Hypertension`) %>%
+           gender = `Gender(M/F)`,
+           pmh_htn = `PMH - Hypertension`,
+           bmi = `BMI (kg/m2)`) %>%
     filter(!is.na(patient))
 
 # fixed 8 errors with date/times; see fixes.Rds
@@ -70,7 +73,9 @@ data_bp <- bp %>%
 
 data_meds <- meds %>%
     distinct(patient, med, scheduled) %>%
-    group_by(patient, scheduled) %>%
+    group_by(patient, scheduled)
+
+data_meds_num <- data_meds %>%
     summarize(num_meds = n()) %>%
     mutate(scheduled = if_else(scheduled, "num_scheduled", "num_prn", "num_unknown")) %>%
     spread(scheduled, num_meds) %>%
@@ -82,3 +87,28 @@ data_meds_common <- meds %>%
     group_by(pmh_htn) %>%
     count(med) %>%
     arrange(pmh_htn, desc(n), med)
+
+hm <- main %>%
+    select(patient, starts_with("HM - "))
+    # mutate_if(is.character, funs(. == "Yes"))
+
+names(hm) <- str_to_lower(str_replace_all(names(hm), "HM - ", ""))
+
+data_home_meds <- hm %>%
+    gather(med, value, -patient) %>%
+    filter(value == "Yes",
+           med != "unknown") %>%
+    arrange(patient, med) %>%
+    dmap_at("value", ~ TRUE) %>%
+    dmap_at("med", str_replace_all, pattern = "hctz", "hydrochlorothiazide")
+
+data_meds_hm_inpt <- data_meds %>%
+    filter(med != "none") %>%
+    dmap_at("med", str_replace_all, pattern = " tartrate| succinate", replacement = "") %>%
+    full_join(data_home_meds, by = c("patient", "med")) %>%
+    arrange(patient, med) %>%
+    mutate(same_med = !is.na(scheduled) & !is.na(value)) %>%
+    group_by(patient) %>%
+    summarize(num_meds = n(),
+              same_hm_inpt = sum(same_med, na.rm = TRUE))
+]
