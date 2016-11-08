@@ -66,3 +66,12 @@ data_bp <- bp %>%
               first_dbp = first(DBP),
               last_sbp = last(SBP),
               last_dbp = last(DBP))
+
+data_meds <- meds %>%
+    distinct(patient, med, scheduled) %>%
+    group_by(patient, scheduled) %>%
+    summarize(num_meds = n()) %>%
+    mutate(scheduled = if_else(scheduled, "num_scheduled", "num_prn", "num_unknown")) %>%
+    spread(scheduled, num_meds) %>%
+    mutate(num_meds = sum(num_scheduled, num_prn, num_unknown, na.rm = TRUE))
+
