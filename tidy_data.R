@@ -80,19 +80,25 @@ data_meds <- meds %>%
     distinct(patient, med, scheduled) %>%
     group_by(patient, scheduled)
 
+data_nicard <- data_meds %>%
+    filter(med == "nicardipine") %>%
+    distinct() %>%
+    mutate(nicardipine = TRUE) %>%
+    ungroup() %>%
+    select(-scheduled)
+
 data_meds_num <- data_meds %>%
     summarize(num_meds = n()) %>%
     mutate(scheduled = if_else(scheduled, "num_scheduled", "num_prn", "num_unknown")) %>%
     spread(scheduled, num_meds) %>%
-    mutate(num_meds = sum(num_scheduled, num_prn, num_unknown, na.rm = TRUE)) %>%
-    dmap_at(2:5, ~ coalesce(.x, 0L))
+    mutate(num_meds = sum(num_scheduled, num_prn, num_unknown, na.rm = TRUE))
 
 data_meds_common <- meds %>%
-    left_join(main[c("patient", "pmh_htn")], by = "patient") %>%
-    distinct(patient, med, pmh_htn) %>%
-    group_by(pmh_htn) %>%
+    left_join(data_pmh[c("patient", "hypertension")], by = "patient") %>%
+    distinct(patient, med, hypertension) %>%
+    group_by(hypertension) %>%
     count(med) %>%
-    arrange(pmh_htn, desc(n), med)
+    arrange(hypertension, desc(n), med)
 
 hm <- main %>%
     select(patient, starts_with("HM - ")) %>%
@@ -125,7 +131,6 @@ data_meds_hm_inpt <- data_meds %>%
     group_by(patient) %>%
     summarize(num_meds = n(),
               same_hm_inpt = sum(same_med, na.rm = TRUE))
-
 dm <- main %>%
     select(patient, starts_with("DM - ")) %>%
     dmap_if(is.character, ~ .x == "Yes")
@@ -158,6 +163,8 @@ convert_logi <- c("transfer",
                   "fall",
                   "syncope",
                   "ams_hypotension")
+
+fill_zero <- c(names(data_meds_num[-1]), "same_hm_inpt", "num_meds_home", "num_meds_dc")
 
 data_tidy <- main %>%
     # group_by(patient) %>%
@@ -200,6 +207,9 @@ data_tidy <- main %>%
     left_join(data_meds_num_home, by = "patient") %>%
     left_join(data_meds_num_dc, by = "patient") %>%
     left_join(data_bp, by = "patient") %>%
-    dmap_at(convert_logi, ~ .x == "Yes")
+    left_join(data_nicard, by = "patient") %>%
+    dmap_at(convert_logi, ~ .x == "Yes") %>%
+    dmap_at(fill_zero, ~ coalesce(.x, 0L))
+    # dmap_at("nicardpine", ~ coalesce(.x, FALSE))
 
 names(data_tidy) <- str_to_lower(names(data_tidy))
