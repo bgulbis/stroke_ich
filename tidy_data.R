@@ -83,7 +83,7 @@ data_meds <- meds %>%
 data_nicard <- data_meds %>%
     filter(med == "nicardipine") %>%
     distinct() %>%
-    mutate(nicardipine = TRUE) %>%
+    mutate(nicard_gtt = TRUE) %>%
     ungroup() %>%
     select(-scheduled)
 
@@ -167,14 +167,14 @@ convert_logi <- c("transfer",
 fill_zero <- c(names(data_meds_num[-1]), "same_hm_inpt", "num_meds_home", "num_meds_dc")
 
 data_tidy <- main %>%
-    # group_by(patient) %>%
     mutate(length_stay = as.numeric(difftime(`Discharge Date/Time`, `Admission Date/Time`, units = "days")),
            time_admit_tpa_hrs = as.numeric(difftime(`tPA administration date/time`, `Admission Date/Time`, units = "hours")),
            time_admit_ivhtn_hrs = as.numeric(difftime(`First IV Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours")),
            time_admit_pohtn_hrs = as.numeric(difftime(`First oral Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours")),
            time_ivhtn_pohtn_hrs = as.numeric(difftime(`First oral Anti-HTN Medication Date/Time`, `First IV Anti-HTN Medication Date/Time`, units = "hours")),
-           time_admit_prn_hrs = as.numeric(difftime(`First prn Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours")),
-           first_bpmed = min(time_admit_ivhtn_hrs, time_admit_pohtn_hrs, time_admit_prn_hrs, na.rm = TRUE)) %>%
+           time_admit_prn_hrs = as.numeric(difftime(`First prn Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours"))) %>%
+    by_row(~ min(.x$time_admit_ivhtn_hrs, .x$time_admit_pohtn_hrs, .x$time_admit_prn_hrs, na.rm = TRUE), .collate = "rows", .to = "first_bpmed") %>%
+    dmap_at("first_bpmed", na_if, y = Inf) %>%
     select(patient:bmi,
            length_stay,
            Disposition,
@@ -190,7 +190,7 @@ data_tidy <- main %>%
            time_admit_tpa_hrs,
            tpa_resolve_symptoms = `Resolution of symptoms from tPA`,
            tpa_occlusion_persist = `Persistence of occulsion from IV tPA`,
-           itraarterial_tx = `Intraarterial therapy`,
+           intraarterial_tx = `Intraarterial therapy`,
            tici = `Thrombolysis in cerebral infarction score`,
            first_bpmed,
            time_admit_ivhtn_hrs,
@@ -209,7 +209,7 @@ data_tidy <- main %>%
     left_join(data_bp, by = "patient") %>%
     left_join(data_nicard, by = "patient") %>%
     dmap_at(convert_logi, ~ .x == "Yes") %>%
-    dmap_at(fill_zero, ~ coalesce(.x, 0L))
-    # dmap_at("nicardpine", ~ coalesce(.x, FALSE))
+    dmap_at(fill_zero, ~ coalesce(.x, 0L)) %>%
+    dmap_at("nicard_gtt", ~ coalesce(.x, FALSE))
 
 names(data_tidy) <- str_to_lower(names(data_tidy))
