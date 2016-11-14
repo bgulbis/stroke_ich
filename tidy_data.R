@@ -74,8 +74,8 @@ data_bp <- bp %>%
               first_dbp = first(DBP),
               last_sbp = last(SBP),
               last_dbp = last(DBP),
-              sbp_admit_dc_diff = first(SBP) - last(SBP),
-              dbp_admit_dc_diff = first(DBP) - last(DBP),
+              sbp_admit_dc_diff = last(SBP) - first(SBP),
+              dbp_admit_dc_diff = last(DBP) - first(DBP),
               first_sbp_180 = first(SBP) >= 180)
 
 data_meds <- meds %>%
@@ -105,9 +105,6 @@ data_meds_common <- meds %>%
 hm <- main %>%
     select(patient, starts_with("HM - ")) %>%
     dmap_if(is.character, ~ .x == "Yes")
-    # by_row(function(x) sum(as.numeric(x[, -1]), na.rm = TRUE),
-    #               .collate = "rows",
-    #               .to = "num_meds_home")
 
 names(hm) <- str_to_lower(str_replace_all(names(hm), "HM - ", ""))
 
@@ -137,9 +134,6 @@ data_meds_hm_inpt <- data_meds %>%
 dm <- main %>%
     select(patient, starts_with("DM - ")) %>%
     dmap_if(is.character, ~ .x == "Yes")
-# by_row(function(x) sum(as.numeric(x[, -1]), na.rm = TRUE),
-#               .collate = "rows",
-#               .to = "num_meds_home")
 
 names(dm) <- str_to_lower(str_replace_all(names(dm), "DM - ", ""))
 
