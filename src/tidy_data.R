@@ -2,7 +2,7 @@ library(tidyverse)
 library(readxl)
 library(stringr)
 
-xls <- "BP Datasheet_10_27_Final.xls"
+xls <- "data/raw/BP Datasheet_10_27_Final.xls"
 
 # changes to Excel data sheet --------------------------
 # rename Admission BP >/= 180 to Admission BP gte 180
@@ -100,7 +100,11 @@ data_meds_common <- meds %>%
     distinct(patient, med, hypertension) %>%
     group_by(hypertension) %>%
     count(med) %>%
-    arrange(hypertension, desc(n), med)
+    arrange(hypertension, desc(n), med) %>%
+    ungroup() %>%
+    mutate(hypertension = if_else(hypertension, "htn", "no_htn")) %>%
+    spread(hypertension, n) %>%
+    dmap_if(is.integer, ~ coalesce(.x, 0L))
 
 hm <- main %>%
     select(patient, starts_with("HM - ")) %>%
