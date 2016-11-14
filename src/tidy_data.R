@@ -143,7 +143,7 @@ dm <- main %>%
 
 names(dm) <- str_to_lower(str_replace_all(names(dm), "DM - ", ""))
 
-data_home_meds <- dm %>%
+data_dc_meds <- dm %>%
     gather(med, value, -patient) %>%
     filter(value == TRUE,
            med != "unknown") %>%
@@ -151,7 +151,7 @@ data_home_meds <- dm %>%
     dmap_at("value", ~ TRUE) %>%
     dmap_at("med", str_replace_all, pattern = "hctz", "hydrochlorothiazide")
 
-data_meds_num_dc <- data_home_meds %>%
+data_meds_num_dc <- data_dc_meds %>%
     group_by(patient) %>%
     count() %>%
     rename(num_meds_dc = n)
@@ -160,6 +160,10 @@ data_meds_count <- data_meds_num_home %>%
     left_join(data_meds_num_dc, by = "patient") %>%
     dmap_if(is.integer, ~ coalesce(.x, 0L)) %>%
     mutate(diff_home_dc = num_meds_dc - num_meds_home)
+
+data_meds_dc <- data_dc_meds %>%
+    group_by(med) %>%
+    summarize(num = n())
 
 convert_logi <- c("transfer",
                   "transfer_nicardipine",
@@ -224,3 +228,4 @@ names(data_tidy) <- str_to_lower(names(data_tidy))
 
 write_csv(data_tidy, "data/tidy/main_analysis.csv")
 write_csv(data_meds_common, "data/tidy/common_meds.csv")
+write_csv(data_meds_dc, "data/tidy/meds_discharge.csv")
