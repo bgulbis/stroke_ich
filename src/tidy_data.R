@@ -133,7 +133,9 @@ data_meds_hm_inpt <- data_meds %>%
     mutate(same_med = !is.na(scheduled) & !is.na(value)) %>%
     group_by(patient) %>%
     summarize(num_meds = n(),
-              same_hm_inpt = sum(same_med, na.rm = TRUE))
+              num_inpt = sum(scheduled, na.rm = TRUE),
+              num_hm = sum(value, na.rm = TRUE),
+              prcnt_hm_cont = if_else(num_hm > 0, sum(same_med, na.rm = TRUE) / num_hm, NA_real_))
 
 dm <- main %>%
     select(patient, starts_with("DM - ")) %>%
@@ -204,7 +206,7 @@ data_tidy <- main %>%
            ams_hypotension = `Safety - Decreased mental status attributed to low blood pressure`) %>%
     left_join(data_pmh, by = "patient") %>%
     left_join(data_meds_num, by = "patient") %>%
-    left_join(data_meds_hm_inpt[c("patient", "same_hm_inpt")], by = "patient") %>%
+    left_join(data_meds_hm_inpt[c("patient", "prcnt_hm_cont")], by = "patient") %>%
     left_join(data_meds_num_home, by = "patient") %>%
     left_join(data_meds_num_dc, by = "patient") %>%
     left_join(data_bp, by = "patient") %>%
