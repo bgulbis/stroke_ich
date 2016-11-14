@@ -156,6 +156,11 @@ data_meds_num_dc <- data_home_meds %>%
     count() %>%
     rename(num_meds_dc = n)
 
+data_meds_count <- data_meds_num_home %>%
+    left_join(data_meds_num_dc, by = "patient") %>%
+    dmap_if(is.integer, ~ coalesce(.x, 0L)) %>%
+    mutate(diff_home_dc = num_meds_dc - num_meds_home)
+
 convert_logi <- c("transfer",
                   "transfer_nicardipine",
                   "ecg_afib",
@@ -169,14 +174,15 @@ convert_logi <- c("transfer",
 
 fill_zero <- c(names(data_meds_num[-1]), "same_hm_inpt", "num_meds_home", "num_meds_dc")
 
+options(scipen = 999)
 data_tidy <- main %>%
     mutate(length_stay = as.numeric(difftime(`Discharge Date/Time`, `Admission Date/Time`, units = "days")),
-           time_admit_tpa_hrs = as.numeric(difftime(`tPA administration date/time`, `Admission Date/Time`, units = "hours")),
-           time_admit_ivhtn_hrs = as.numeric(difftime(`First IV Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours")),
-           time_admit_pohtn_hrs = as.numeric(difftime(`First oral Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours")),
-           time_ivhtn_pohtn_hrs = as.numeric(difftime(`First oral Anti-HTN Medication Date/Time`, `First IV Anti-HTN Medication Date/Time`, units = "hours")),
-           time_admit_prn_hrs = as.numeric(difftime(`First prn Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours"))) %>%
-    by_row(~ min(.x$time_admit_ivhtn_hrs, .x$time_admit_pohtn_hrs, .x$time_admit_prn_hrs, na.rm = TRUE), .collate = "rows", .to = "first_bpmed") %>%
+           time_admit_tpa = as.numeric(difftime(`tPA administration date/time`, `Admission Date/Time`, units = "hours")),
+           time_admit_ivhtn = as.numeric(difftime(`First IV Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours")),
+           time_admit_pohtn = as.numeric(difftime(`First oral Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours")),
+           time_ivhtn_pohtn = as.numeric(difftime(`First oral Anti-HTN Medication Date/Time`, `First IV Anti-HTN Medication Date/Time`, units = "hours")),
+           time_admit_prn = as.numeric(difftime(`First prn Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours"))) %>%
+    by_row(~ min(.x$time_admit_ivhtn, .x$time_admit_pohtn, .x$time_admit_prn, na.rm = TRUE), .collate = "rows", .to = "first_bpmed") %>%
     dmap_at("first_bpmed", na_if, y = Inf) %>%
     select(patient:bmi,
            length_stay,
@@ -190,16 +196,16 @@ data_tidy <- main %>%
            stroke_type = `Type of Ischemic Stroke`,
            ecg_afib = `ECG showing afib at anytime?`,
            tpa = `tPA dosing`,
-           time_admit_tpa_hrs,
+           time_admit_tpa,
            tpa_resolve_symptoms = `Resolution of symptoms from tPA`,
            tpa_occlusion_persist = `Persistence of occulsion from IV tPA`,
            intraarterial_tx = `Intraarterial therapy`,
            tici = `Thrombolysis in cerebral infarction score`,
            first_bpmed,
-           time_admit_ivhtn_hrs,
-           time_admit_pohtn_hrs,
-           time_ivhtn_pohtn_hrs,
-           time_admit_prn_hrs,
+           time_admit_ivhtn,
+           time_admit_pohtn,
+           time_ivhtn_pohtn,
+           time_admit_prn,
            stroke_new = `Safety - New stroke during hospitalization?`,
            fall = `Safety - Fall `,
            syncope = `Safety - Syncopal Event`,
@@ -207,8 +213,7 @@ data_tidy <- main %>%
     left_join(data_pmh, by = "patient") %>%
     left_join(data_meds_num, by = "patient") %>%
     left_join(data_meds_hm_inpt[c("patient", "prcnt_hm_cont")], by = "patient") %>%
-    left_join(data_meds_num_home, by = "patient") %>%
-    left_join(data_meds_num_dc, by = "patient") %>%
+    left_join(data_meds_count, by = "patient") %>%
     left_join(data_bp, by = "patient") %>%
     left_join(data_nicard, by = "patient") %>%
     dmap_at(convert_logi, ~ .x == "Yes") %>%
