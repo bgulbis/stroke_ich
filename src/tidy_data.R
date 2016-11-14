@@ -215,3 +215,5 @@ data_tidy <- main %>%
 
 names(data_tidy) <- str_to_lower(names(data_tidy))
 
+write_csv(data_tidy, "data/tidy/main_analysis.csv")
+write_csv(data_meds_common, "data/tidy/common_meds.csv")
