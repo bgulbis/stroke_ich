@@ -74,6 +74,8 @@ data_bp <- bp %>%
               first_dbp = first(DBP),
               last_sbp = last(SBP),
               last_dbp = last(DBP),
+              sbp_admit_dc_diff = first(SBP) - last(SBP),
+              dbp_admit_dc_diff = first(DBP) - last(DBP),
               first_sbp_180 = first(SBP) >= 180)
 
 data_meds <- meds %>%
@@ -131,6 +133,7 @@ data_meds_hm_inpt <- data_meds %>%
     group_by(patient) %>%
     summarize(num_meds = n(),
               same_hm_inpt = sum(same_med, na.rm = TRUE))
+
 dm <- main %>%
     select(patient, starts_with("DM - ")) %>%
     dmap_if(is.character, ~ .x == "Yes")
