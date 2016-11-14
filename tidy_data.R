@@ -210,3 +210,4 @@ data_tidy <- main %>%
     dmap_at("nicard_gtt", ~ coalesce(.x, FALSE))
 
 names(data_tidy) <- str_to_lower(names(data_tidy))
+
