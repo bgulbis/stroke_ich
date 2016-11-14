@@ -176,7 +176,7 @@ convert_logi <- c("transfer",
                   "syncope",
                   "ams_hypotension")
 
-fill_zero <- c(names(data_meds_num[-1]), "same_hm_inpt", "num_meds_home", "num_meds_dc")
+fill_zero <- c(names(data_meds_num[-1]), "same_hm_inpt")
 
 options(scipen = 999)
 data_tidy <- main %>%
