@@ -222,6 +222,12 @@ daily_goal <- location %>%
               goal_recorded = sum(goal_recorded, na.rm = TRUE)) %>%
     mutate(days_without_goal = days - goal_recorded)
 
+goal_met <- location %>%
+    group_by(patient) %>%
+    arrange(patient, Day) %>%
+    filter(`Was BP goal met?` == "Yes") %>%
+    summarize(day_goal_met = first(Day))
+
 convert_logi <- c("transfer",
                   "transfer_nicardipine",
                   "ecg_afib",
@@ -283,6 +289,8 @@ data_tidy <- main %>%
     left_join(med_first, by = "patient") %>%
     left_join(dc_bp_goal, by = "patient") %>%
     left_join(daily_goal[c("patient", "days_without_goal")], by = "patient") %>%
+    left_join(goal_met, by = "patient") %>%
+    mutate(goal_met = !is.na(day_goal_met)) %>%
     dmap_at(convert_logi, ~ .x == "Yes") %>%
     dmap_at(fill_zero, ~ coalesce(.x, 0L)) %>%
     dmap_at("nicard_gtt", ~ coalesce(.x, FALSE))
