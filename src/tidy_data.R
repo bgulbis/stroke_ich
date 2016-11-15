@@ -191,6 +191,13 @@ bp_48h <- bp %>%
     summarize(sbp_change_48h = last(SBP) - first(SBP),
               dbp_change_48h = last(DBP) - first(DBP))
 
+med_first <- meds %>%
+    group_by(patient) %>%
+    arrange(patient, admin_datetime) %>%
+    filter(admin_datetime == first(admin_datetime)) %>%
+    select(patient, med) %>%
+    distinct(.keep_all = TRUE)
+
 convert_logi <- c("transfer",
                   "transfer_nicardipine",
                   "ecg_afib",
@@ -249,6 +256,7 @@ data_tidy <- main %>%
     left_join(bp_auc, by = "patient") %>%
     left_join(bp_24h, by = "patient") %>%
     left_join(bp_48h, by = "patient") %>%
+    left_join(med_first, by = "patient") %>%
     dmap_at(convert_logi, ~ .x == "Yes") %>%
     dmap_at(fill_zero, ~ coalesce(.x, 0L)) %>%
     dmap_at("nicard_gtt", ~ coalesce(.x, FALSE))
