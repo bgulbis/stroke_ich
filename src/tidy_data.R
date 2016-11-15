@@ -209,6 +209,11 @@ data_meds_common_gt180 <- meds %>%
     spread(first_sbp_180, n) %>%
     dmap_if(is.integer, ~ coalesce(.x, 0L))
 
+dc_bp_goal <- location %>%
+    group_by(patient) %>%
+    arrange(patient, Day) %>%
+    summarize(dc_bp_goal = last(`SBP High`))
+
 convert_logi <- c("transfer",
                   "transfer_nicardipine",
                   "ecg_afib",
@@ -268,6 +273,7 @@ data_tidy <- main %>%
     left_join(bp_24h, by = "patient") %>%
     left_join(bp_48h, by = "patient") %>%
     left_join(med_first, by = "patient") %>%
+    left_join(dc_bp_goal, by = "patient") %>%
     dmap_at(convert_logi, ~ .x == "Yes") %>%
     dmap_at(fill_zero, ~ coalesce(.x, 0L)) %>%
     dmap_at("nicard_gtt", ~ coalesce(.x, FALSE))
