@@ -198,6 +198,17 @@ med_first <- meds %>%
     select(patient, med) %>%
     distinct(.keep_all = TRUE)
 
+data_meds_common_gt180 <- meds %>%
+    left_join(data_bp[c("patient", "first_sbp_180")], by = "patient") %>%
+    distinct(patient, med, first_sbp_180) %>%
+    group_by(first_sbp_180) %>%
+    count(med) %>%
+    arrange(first_sbp_180, desc(n), med) %>%
+    ungroup() %>%
+    mutate(first_sbp_180 = if_else(first_sbp_180, "gte180", "lt180")) %>%
+    spread(first_sbp_180, n) %>%
+    dmap_if(is.integer, ~ coalesce(.x, 0L))
+
 convert_logi <- c("transfer",
                   "transfer_nicardipine",
                   "ecg_afib",
@@ -266,3 +277,4 @@ names(data_tidy) <- str_to_lower(names(data_tidy))
 write_csv(data_tidy, "data/tidy/main_analysis.csv")
 write_csv(data_meds_common, "data/tidy/common_meds.csv")
 write_csv(data_meds_dc, "data/tidy/meds_discharge.csv")
+write_csv(data_meds_common_gt180, "data/tidy/common_meds_bp_gte_180.csv")
