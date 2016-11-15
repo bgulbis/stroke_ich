@@ -1,6 +1,8 @@
 library(tidyverse)
 library(readxl)
 library(stringr)
+library(lubridate)
+library(MESS)
 
 xls <- "data/raw/BP Datasheet_10_27_Final.xls"
 
@@ -165,6 +167,30 @@ data_meds_dc <- data_dc_meds %>%
     group_by(med) %>%
     summarize(num = n())
 
+bp_auc <- bp %>%
+    group_by(patient) %>%
+    arrange(patient, bp_datetime) %>%
+    mutate(duration = as.numeric(difftime(bp_datetime, first(bp_datetime), units = "hours"))) %>%
+    summarize(sbp_auc = auc(duration, SBP),
+              dbp_auc = auc(duration, DBP),
+              duration = as.numeric(difftime(last(bp_datetime), first(bp_datetime), units = "hours"))) %>%
+    mutate(sbp_wt_avg = sbp_auc / duration,
+           dbp_wt_avg = dbp_auc / duration)
+
+bp_24h <- bp %>%
+    group_by(patient) %>%
+    arrange(patient, bp_datetime) %>%
+    filter(bp_datetime <= first(bp_datetime) + hours(24)) %>%
+    summarize(sbp_change_24h = last(SBP) - first(SBP),
+              dbp_change_24h = last(DBP) - first(DBP))
+
+bp_48h <- bp %>%
+    group_by(patient) %>%
+    arrange(patient, bp_datetime) %>%
+    filter(bp_datetime <= first(bp_datetime) + hours(48)) %>%
+    summarize(sbp_change_48h = last(SBP) - first(SBP),
+              dbp_change_48h = last(DBP) - first(DBP))
+
 convert_logi <- c("transfer",
                   "transfer_nicardipine",
                   "ecg_afib",
@@ -220,6 +246,9 @@ data_tidy <- main %>%
     left_join(data_meds_count, by = "patient") %>%
     left_join(data_bp, by = "patient") %>%
     left_join(data_nicard, by = "patient") %>%
+    left_join(bp_auc, by = "patient") %>%
+    left_join(bp_24h, by = "patient") %>%
+    left_join(bp_48h, by = "patient") %>%
     dmap_at(convert_logi, ~ .x == "Yes") %>%
     dmap_at(fill_zero, ~ coalesce(.x, 0L)) %>%
     dmap_at("nicard_gtt", ~ coalesce(.x, FALSE))
