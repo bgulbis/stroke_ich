@@ -214,6 +214,14 @@ dc_bp_goal <- location %>%
     arrange(patient, Day) %>%
     summarize(dc_bp_goal = last(`SBP High`))
 
+daily_goal <- location %>%
+    group_by(patient) %>%
+    mutate(days = n(),
+           goal_recorded = !is.na(`SBP High`)) %>%
+    summarize(days = max(days),
+              goal_recorded = sum(goal_recorded, na.rm = TRUE)) %>%
+    mutate(days_without_goal = days - goal_recorded)
+
 convert_logi <- c("transfer",
                   "transfer_nicardipine",
                   "ecg_afib",
@@ -274,6 +282,7 @@ data_tidy <- main %>%
     left_join(bp_48h, by = "patient") %>%
     left_join(med_first, by = "patient") %>%
     left_join(dc_bp_goal, by = "patient") %>%
+    left_join(daily_goal[c("patient", "days_without_goal")], by = "patient") %>%
     dmap_at(convert_logi, ~ .x == "Yes") %>%
     dmap_at(fill_zero, ~ coalesce(.x, 0L)) %>%
     dmap_at("nicard_gtt", ~ coalesce(.x, FALSE))
