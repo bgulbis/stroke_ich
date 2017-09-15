@@ -18,11 +18,14 @@ xls <- "data/raw/bp_data_pre-post.xlsx"
 # - "Safety - Decreased mental status attributed to low blood pressure"
 # fix row 33, row 36; tPA administration date/time - convert unknown to N/A
 # fix row 56, Total number of antihypertensives at home - convert to number
+# fix Q75, date formating
 # fix row 86, Total number of antihypertensive medications at discharge
 # convert to number, tPA dosing, rows 1, 4, 21, 33
 # rename "Blood Pressure Readings " tab to remove spaces (note trailing space)
 # convert to number, rows 5003 to 7924
+# Medications: fix dates on F1664, F1665, F1896, F1907
 # fixed 8 errors with date/times; see fixes.Rds
+# x <- read_rds("data/external/radiographic_fixes.Rds")
 
 # set column types
 cols <- c("numeric", rep("text", 2), rep("numeric", 2), rep("date", 2),
@@ -34,7 +37,8 @@ main <- read_excel(xls, sheet = "Mainsheet", col_types = cols, na = "N/A") %>%
     rename(patient = `Patient Number`,
            gender = `Gender(M/F)`,
            bmi = `BMI (kg/m2)`) %>%
-    filter(!is.na(patient))
+    filter(!is.na(patient)) %>%
+    mutate(group = patient <= 130, "pre", "post"))
 
 xray <- read_excel(xls, sheet = "Radiographic") %>%
     rename(patient = `Patient Number`) %>%
@@ -56,29 +60,31 @@ meds <- read_excel(xls, sheet = "Medications") %>%
            dose = `Dose/Rate (mg or mg/hr)`,
            admin_datetime = `Administration Date/Time`) %>%
     mutate(scheduled = `Scheduled/PRN` == "Scheduled") %>%
-    dmap_at("med", str_to_lower) %>%
-    dmap_at("med", str_trim, side = "both") %>%
-    dmap_at("med", str_replace_all, pattern = "no anti-htn.*", "none") %>%
+    mutate_at("med", str_to_lower) %>%
+    mutate_at("med", str_trim, side = "both") %>%
+    mutate_at("med", str_replace_all, pattern = "no anti-htn.*", "none") %>%
     select(-`Scheduled/PRN`) %>%
     filter(!is.na(patient))
 
 data_pmh <- main %>%
-    select(patient, starts_with("PMH - ")) %>%
-    dmap_if(is.character, ~ .x == "Yes")
-
-names(data_pmh) <- str_to_lower(str_replace_all(names(data_pmh), "PMH - ", ""))
-names(data_pmh) <- str_to_lower(str_replace_all(names(data_pmh), " |/", "_"))
+    select(patient, group, starts_with("PMH - ")) %>%
+    mutate_at("group", funs(. == "pre")) %>%
+    mutate_if(is.character, funs(. == "Yes")) %>%
+    rename_all(str_replace_all, pattern = "PMH - ", replacement = "") %>%
+    rename_all(str_replace_all, pattern = " |/", "_") %>%
+    rename_all(str_to_lower) %>%
+    mutate_at("group", funs(case_when(. ~ "pre",
+                                      TRUE ~ "post")))
 
 data_bp <- bp %>%
+    rename_all(str_to_lower) %>%
     group_by(patient) %>%
-    arrange(bp_datetime) %>%
-    summarize(first_sbp = first(SBP),
-              first_dbp = first(DBP),
-              last_sbp = last(SBP),
-              last_dbp = last(DBP),
-              sbp_admit_dc_diff = last(SBP) - first(SBP),
-              dbp_admit_dc_diff = last(DBP) - first(DBP),
-              first_sbp_180 = first(SBP) >= 180)
+    arrange(bp_datetime, .by_group = TRUE) %>%
+    summarize_at(c("sbp", "dbp"), funs(first, last)) %>%
+    group_by(patient) %>%
+    mutate(sbp_admit_dc_diff = sbp_last - sbp_first,
+           dbp_admit_dc_diff = dbp_last - dbp_first,
+           sbp_first_180 = sbp_first >= 180)
 
 data_meds <- meds %>%
     distinct(patient, med, scheduled) %>%
@@ -100,33 +106,30 @@ data_meds_num <- data_meds %>%
 data_meds_common <- meds %>%
     left_join(data_pmh[c("patient", "hypertension")], by = "patient") %>%
     distinct(patient, med, hypertension) %>%
-    group_by(hypertension) %>%
-    count(med) %>%
-    arrange(hypertension, desc(n), med) %>%
-    ungroup() %>%
     mutate(hypertension = if_else(hypertension, "htn", "no_htn")) %>%
-    spread(hypertension, n) %>%
-    dmap_if(is.integer, ~ coalesce(.x, 0L))
+    left_join(data_pmh[c("patient", "group")], by = "patient") %>%
+    count(med, group, hypertension) %>%
+    arrange(group, hypertension, desc(n), med) %>%
+    unite(group_htn, group, hypertension) %>%
+    spread(group_htn, n) %>%
+    mutate_if(is.integer, funs(coalesce(., 0L)))
 
-hm <- main %>%
+data_home_meds <- main %>%
     select(patient, starts_with("HM - ")) %>%
-    dmap_if(is.character, ~ .x == "Yes")
-
-names(hm) <- str_to_lower(str_replace_all(names(hm), "HM - ", ""))
-
-data_home_meds <- hm %>%
+    mutate_if(is.character, funs(. == "Yes")) %>%
+    rename_all(str_replace_all, pattern = "HM - ", replacement = "") %>%
+    rename_all(str_to_lower) %>%
     gather(med, value, -patient) %>%
     filter(value == TRUE,
            med != "unknown") %>%
     arrange(patient, med) %>%
-    dmap_at("value", ~ TRUE) %>%
-    dmap_at("med", str_replace_all, pattern = "hctz", "hydrochlorothiazide")
+    mutate_at("med", str_replace_all, pattern = "hctz", replacement = "hydrochlorothiazide")
 
 data_meds_num_home <- data_home_meds %>%
     group_by(patient) %>%
     count() %>%
     rename(num_meds_home = n)
-
+# from here --------------------------------------------
 data_meds_hm_inpt <- data_meds %>%
     filter(med != "none") %>%
     dmap_at("med", str_replace_all, pattern = " tartrate| succinate", replacement = "") %>%
