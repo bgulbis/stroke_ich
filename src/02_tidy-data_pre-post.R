@@ -38,7 +38,7 @@ main <- read_excel(xls, sheet = "Mainsheet", col_types = cols, na = "N/A") %>%
            gender = `Gender(M/F)`,
            bmi = `BMI (kg/m2)`) %>%
     filter(!is.na(patient)) %>%
-    mutate(group = patient <= 130, "pre", "post"))
+    mutate(group = if_else(patient <= 130, "pre", "post"))
 
 xray <- read_excel(xls, sheet = "Radiographic") %>%
     rename(patient = `Patient Number`) %>%
@@ -92,6 +92,7 @@ data_meds <- meds %>%
 
 data_nicard <- data_meds %>%
     filter(med == "nicardipine") %>%
+    rename(drip = med) %>%
     distinct() %>%
     mutate(nicard_gtt = TRUE) %>%
     ungroup() %>%
@@ -104,10 +105,9 @@ data_meds_num <- data_meds %>%
     mutate(num_meds = sum(num_scheduled, num_prn, num_unknown, na.rm = TRUE))
 
 data_meds_common <- meds %>%
-    left_join(data_pmh[c("patient", "hypertension")], by = "patient") %>%
-    distinct(patient, med, hypertension) %>%
+    left_join(data_pmh[c("patient", "group", "hypertension")], by = "patient") %>%
+    distinct(patient, group, hypertension, med) %>%
     mutate(hypertension = if_else(hypertension, "htn", "no_htn")) %>%
-    left_join(data_pmh[c("patient", "group")], by = "patient") %>%
     count(med, group, hypertension) %>%
     arrange(group, hypertension, desc(n), med) %>%
     unite(group_htn, group, hypertension) %>%
@@ -129,10 +129,10 @@ data_meds_num_home <- data_home_meds %>%
     group_by(patient) %>%
     count() %>%
     rename(num_meds_home = n)
-# from here --------------------------------------------
+
 data_meds_hm_inpt <- data_meds %>%
     filter(med != "none") %>%
-    dmap_at("med", str_replace_all, pattern = " tartrate| succinate", replacement = "") %>%
+    mutate_at("med", str_replace_all, pattern = " tartrate| succinate", replacement = "") %>%
     full_join(data_home_meds, by = c("patient", "med")) %>%
     arrange(patient, med) %>%
     mutate(same_med = !is.na(scheduled) & !is.na(value)) %>%
@@ -142,19 +142,16 @@ data_meds_hm_inpt <- data_meds %>%
               num_hm = sum(value, na.rm = TRUE),
               prcnt_hm_cont = if_else(num_hm > 0, sum(same_med, na.rm = TRUE) / num_hm, NA_real_))
 
-dm <- main %>%
+data_dc_meds <- main %>%
     select(patient, starts_with("DM - ")) %>%
-    dmap_if(is.character, ~ .x == "Yes")
-
-names(dm) <- str_to_lower(str_replace_all(names(dm), "DM - ", ""))
-
-data_dc_meds <- dm %>%
+    mutate_if(is.character, funs(. == "Yes")) %>%
+    rename_all(str_replace_all, pattern = "DM - ", "") %>%
+    rename_all(str_to_lower) %>%
     gather(med, value, -patient) %>%
     filter(value == TRUE,
            med != "unknown") %>%
     arrange(patient, med) %>%
-    dmap_at("value", ~ TRUE) %>%
-    dmap_at("med", str_replace_all, pattern = "hctz", "hydrochlorothiazide")
+    mutate_at("med", str_replace_all, pattern = "hctz", replacement = "hydrochlorothiazide")
 
 data_meds_num_dc <- data_dc_meds %>%
     group_by(patient) %>%
@@ -163,12 +160,18 @@ data_meds_num_dc <- data_dc_meds %>%
 
 data_meds_count <- data_meds_num_home %>%
     left_join(data_meds_num_dc, by = "patient") %>%
-    dmap_if(is.integer, ~ coalesce(.x, 0L)) %>%
+    mutate_if(is.integer, funs(coalesce(., 0L))) %>%
     mutate(diff_home_dc = num_meds_dc - num_meds_home)
 
 data_meds_dc <- data_dc_meds %>%
-    group_by(med) %>%
-    summarize(num = n())
+    left_join(data_pmh[c("patient", "group", "hypertension")], by = "patient") %>%
+    distinct(patient, group, hypertension, med) %>%
+    mutate(hypertension = if_else(hypertension, "htn", "no_htn")) %>%
+    count(med, group, hypertension) %>%
+    arrange(group, hypertension, desc(n), med) %>%
+    unite(group_htn, group, hypertension) %>%
+    spread(group_htn, n) %>%
+    mutate_if(is.integer, funs(coalesce(., 0L)))
 
 bp_auc <- bp %>%
     group_by(patient) %>%
@@ -202,15 +205,15 @@ med_first <- meds %>%
     distinct(.keep_all = TRUE)
 
 data_meds_common_gt180 <- meds %>%
-    left_join(data_bp[c("patient", "first_sbp_180")], by = "patient") %>%
-    distinct(patient, med, first_sbp_180) %>%
-    group_by(first_sbp_180) %>%
-    count(med) %>%
-    arrange(first_sbp_180, desc(n), med) %>%
-    ungroup() %>%
-    mutate(first_sbp_180 = if_else(first_sbp_180, "gte180", "lt180")) %>%
-    spread(first_sbp_180, n) %>%
-    dmap_if(is.integer, ~ coalesce(.x, 0L))
+    left_join(data_bp[c("patient", "sbp_first_180")], by = "patient") %>%
+    left_join(data_pmh[c("patient", "group")], by = "patient") %>%
+    mutate_at("sbp_first_180", funs(if_else(., "gte180", "lt180"))) %>%
+    distinct(patient, group, med, sbp_first_180) %>%
+    count(group, sbp_first_180, med) %>%
+    arrange(group, sbp_first_180, desc(n), med) %>%
+    unite(group_sbp, group, sbp_first_180) %>%
+    spread(group_sbp, n) %>%
+    mutate_if(is.integer, funs(coalesce(., 0L)))
 
 dc_bp_goal <- location %>%
     group_by(patient) %>%
@@ -242,7 +245,8 @@ convert_logi <- c("transfer",
                   "syncope",
                   "ams_hypotension")
 
-fill_zero <- c(names(data_meds_num[-1]), "same_hm_inpt")
+# fill_zero <- c(names(data_meds_num[-1]), "same_hm_inpt")
+fill_zero <- names(data_meds_num[-1])
 
 options(scipen = 999)
 data_tidy <- main %>%
@@ -252,8 +256,10 @@ data_tidy <- main %>%
            time_admit_pohtn = as.numeric(difftime(`First oral Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours")),
            time_ivhtn_pohtn = as.numeric(difftime(`First oral Anti-HTN Medication Date/Time`, `First IV Anti-HTN Medication Date/Time`, units = "hours")),
            time_admit_prn = as.numeric(difftime(`First prn Anti-HTN Medication Date/Time`, `Admission Date/Time`, units = "hours"))) %>%
-    by_row(~ min(.x$time_admit_ivhtn, .x$time_admit_pohtn, .x$time_admit_prn, na.rm = TRUE), .collate = "rows", .to = "first_bpmed") %>%
-    dmap_at("first_bpmed", na_if, y = Inf) %>%
+    rowwise() %>%
+    mutate(first_bpmed = min(time_admit_ivhtn, time_admit_pohtn, time_admit_prn, na.rm = TRUE)) %>%
+    # purrrlyr::by_row(~ min(.x$time_admit_ivhtn, .x$time_admit_pohtn, .x$time_admit_prn, na.rm = TRUE), .collate = "rows", .to = "first_bpmed") %>%
+    mutate_at("first_bpmed", na_if, y = Inf) %>%
     select(patient:bmi,
            length_stay,
            Disposition,
@@ -262,7 +268,7 @@ data_tidy <- main %>%
            admit_nihss = `Admission National Institute of Health Stroke Scale`,
            admit_gcs = `Admission Glasgow Coma Scale`,
            dc_gcs = `Discharge: Glasgow Coma Scale`,
-           dc_rankin = `Discharge:  Modified rankin scale score `,
+           dc_rankin = `Discharge:  Modified rankin scale score`,
            stroke_type = `Type of Ischemic Stroke`,
            ecg_afib = `ECG showing afib at anytime?`,
            tpa = `tPA dosing`,
@@ -277,7 +283,7 @@ data_tidy <- main %>%
            time_ivhtn_pohtn,
            time_admit_prn,
            stroke_new = `Safety - New stroke during hospitalization?`,
-           fall = `Safety - Fall `,
+           fall = `Safety - Fall`,
            syncope = `Safety - Syncopal Event`,
            ams_hypotension = `Safety - Decreased mental status attributed to low blood pressure`) %>%
     left_join(data_pmh, by = "patient") %>%
@@ -295,13 +301,12 @@ data_tidy <- main %>%
     left_join(goal_met, by = "patient") %>%
     mutate(goal_met = !is.na(day_goal_met),
            stringent_goal = dc_bp_goal < 180) %>%
-    dmap_at(convert_logi, ~ .x == "Yes") %>%
-    dmap_at(fill_zero, ~ coalesce(.x, 0L)) %>%
-    dmap_at("nicard_gtt", ~ coalesce(.x, FALSE))
+    mutate_at(convert_logi, funs(. == "Yes")) %>%
+    mutate_at(fill_zero, funs(coalesce(., 0L))) %>%
+    mutate_at("nicard_gtt", funs(coalesce(., FALSE))) %>%
+    rename_all(str_to_lower)
 
-names(data_tidy) <- str_to_lower(names(data_tidy))
-
-write_csv(data_tidy, "data/tidy/main_analysis.csv")
-write_csv(data_meds_common, "data/tidy/common_meds.csv")
-write_csv(data_meds_dc, "data/tidy/meds_discharge.csv")
-write_csv(data_meds_common_gt180, "data/tidy/common_meds_bp_gte_180.csv")
+write_csv(data_tidy, "data/tidy/main-analysis_pre-post.csv")
+write_csv(data_meds_common, "data/tidy/common-meds_pre-post.csv")
+write_csv(data_meds_dc, "data/tidy/meds-discharge_pre-post.csv")
+write_csv(data_meds_common_gt180, "data/tidy/common-meds_bp-gte-180_pre-post.csv")

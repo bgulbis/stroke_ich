@@ -1,5 +1,6 @@
 library(tidyverse)
 library(readxl)
+library(purrrlyr)
 library(stringr)
 library(lubridate)
 library(MESS)
