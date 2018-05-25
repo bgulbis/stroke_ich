@@ -1,6 +1,7 @@
 library(tidyverse)
 library(lubridate)
 library(readxl)
+library(openxlsx)
 library(edwr)
 
 # runs MBO query
@@ -9,6 +10,21 @@ library(edwr)
 #       - Diagnosis Code: I61.0;I61.1;I61.2;I61.3;I61.4;I61.5;I61.6;I61.8;I61.9
 #       - Last 7 days
 
+edwr_class <- function(x, new_class) {
+    after <- match(new_class, class(x), nomatch = 0L)
+
+    class(x) <- append(
+        class(x),
+        c(new_class, "tbl_edwr"),
+        after = after
+    )
+
+    attr(x, "data") <- "mbo"
+
+    x
+}
+
+tz <- "uS/Central"
 
 raw <- list.files("data/raw/ich_weekly", full.names = TRUE) %>%
     sort()
@@ -18,6 +34,39 @@ n_files <- length(raw)
 update_time <- raw[n_files] %>%
     str_replace_all("patients_ich_|\\.xlsx", "") %>%
     ymd_hms()
+
+# find patients admitted to stroke unit first
+
+data_locations <- raw[n_files] %>%
+    read_excel(
+        sheet = "locations",
+        skip = 2,
+        col_names = c(
+            "millennium.id",
+            "arrive.datetime",
+            "depart.datetime",
+            "unit.name"
+        ),
+        col_types = c(
+            "numeric",
+            "date",
+            "date",
+            "text"
+        )
+    ) %>%
+    edwr_class("locations") %>%
+    mutate_at("millennium.id", as.character) %>%
+    mutate_at(
+        c("arrive.datetime", "depart.datetime"),
+        with_tz,
+        tzone = tz
+    ) %>%
+    tidy_data() %>%
+    filter(!str_detect(location, "HH ED|HH ER|HH VU|HH ADMT")) %>%
+    group_by(millennium.id) %>%
+    arrange(millennium.id, unit.count) %>%
+    distinct(millennium.id, .keep_all = TRUE) %>%
+    filter(location == "HH STRK")
 
 data_patients <- raw[n_files] %>%
     read_excel(
@@ -32,7 +81,7 @@ data_patients <- raw[n_files] %>%
             "age"
         ),
         col_types = c(
-            "text",
+            "numeric",
             "text",
             "date",
             "date",
@@ -40,112 +89,44 @@ data_patients <- raw[n_files] %>%
             "numeric"
         )
     ) %>%
+    edwr_class("vitals") %>%
+    mutate_at("millennium.id", as.character) %>%
     mutate_at(
         c("admit.datetime", "discharge.datetime"),
         with_tz,
-        tzone = "US/Central"
-    )
+        tzone = tz
+    ) %>%
+    semi_join(data_locations, by = "millennium.id")
 
-data_locations <- raw[n_files] %>%
+data_vitals <- raw[n_files] %>%
     read_excel(
-        sheet = "locations",
+        sheet = "vitals",
         skip = 2,
         col_names = c(
             "millennium.id",
-            "arrive.datetime",
-            "depart.datetime",
-            "unit.name"
+            "vital.datetime",
+            "vital",
+            "vital.result",
+            "vital.result.units",
+            "vital.location"
         ),
         col_types = c(
+            "numeric",
+            "date",
             "text",
-            "date",
-            "date",
+            "text",
+            "text",
             "text"
         )
     ) %>%
-    mutate_at(
-        c("arrive.datetime", "depart.datetime"),
-        with_tz,
-        tzone = "US/Central"
-    )
+    edwr_class("vitals") %>%
+    mutate_at("millennium.id", as.character) %>%
+    mutate_at("vital.datetime", with_tz, tzone = tz) %>%
+    mutate_at("vital.result", as.numeric) %>%
+    mutate_at("vital", str_to_lower) %>%
+    semi_join(data_locations, by = "millennium.id")
 
-
-
-
-pts_ich <- read_data(dir_raw, "patients", FALSE) %>%
-    as.patients()
-
-mbo_id <- concat_encounters(pts_ich$millennium.id)
-
-# run MBO queries
-#   * Diagnosis - ICD9/10-CM
-#   * Location History
-
-# find patients admitted to stroke unit first
-
-locations <- read_data(dir_raw, "location", FALSE) %>%
-    as.locations() %>%
-    tidy_data() %>%
-    filter(!str_detect(location, "HH ED|HH ER|HH VU|HH ADMT")) %>%
-    group_by(millennium.id) %>%
-    arrange(millennium.id, unit.count) %>%
-    distinct(millennium.id, location) %>%
-    filter(location == "HH STRK")
-
-diagnosis <- read_data(dir_raw, "diagnosis", FALSE) %>%
-    as.diagnosis() %>%
-    semi_join(locations, by = "millennium.id") %>%
-    filter(
-        diag.type == "FINAL",
-        str_detect(diag.code, "I61")
-    ) %>%
-    arrange(millennium.id, desc(diag.seq)) %>%
-    distinct(millennium.id, .keep_all = TRUE)
-
-mbo_ich_id <- concat_encounters(diagnosis$millennium.id)
-
-# run MBO query
-#   * Identifiers - by Millennium Encounter Id
-
-id <- read_data(dir_raw, "identifiers", FALSE) %>%
-    as.id()
-
-pts <- id %>%
-    left_join(diagnosis, by = "millennium.id") %>%
-    select(-millennium.id)
-
-write.csv(
-    pts,
-    "data/external/ich_patients.csv",
-    row.names = FALSE
-)
-
-# include patients -------------------------------------
-
-include <- read_excel(
-    paste(dir_raw, "include_pts.xlsx", sep = "/"),
-    col_names = "fin",
-    col_types = "text",
-    skip = 1
-) %>%
-    left_join(id, by = "fin")
-
-mbo_incl <- concat_encounters(include$millennium.id)
-
-# run MBO query
-#   * Encounters
-#   * Vitals - BP
-#   * Vitals - HR
-
-encntr <- dir_raw %>%
-    read_data("encounters", FALSE) %>%
-    as.encounters()
-
-vitals_raw <- dir_raw %>%
-    read_data("vitals", FALSE) %>%
-    as.vitals()
-
-vitals_sbp <- vitals_raw %>%
+vitals_sbp <- data_vitals %>%
     filter(
         vital %in% c(
             "systolic blood pressure",
@@ -165,7 +146,7 @@ vitals_sbp <- vitals_raw %>%
     ) %>%
     mutate_at("bp.time", as.numeric)
 
-vitals_hr <-vitals_raw %>%
+vitals_hr <- data_vitals %>%
     filter(
         vital %in% c(
             "apical heart rate",
@@ -188,8 +169,7 @@ vitals <- vitals_sbp %>%
         by = c("millennium.id", "vital.datetime")
     ) %>%
     arrange(millennium.id, vital.datetime) %>%
-    left_join(id, by = "millennium.id") %>%
-    left_join(encntr, by = "millennium.id") %>%
+    left_join(data_patients, by = "millennium.id") %>%
     ungroup() %>%
     select(
         fin,
@@ -204,9 +184,11 @@ vitals <- vitals_sbp %>%
         vital.location
     )
 
-write.csv(
+write.xlsx(
     vitals,
-    "data/external/ich_sbp_data.csv",
-    row.names = FALSE
+    paste0(
+        "data/external/",
+        format(update_time, "%Y-%m-%d"),
+        "_ich_sbp_data.xlsx"
+    )
 )
-
