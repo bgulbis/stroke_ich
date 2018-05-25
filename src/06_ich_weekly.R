@@ -25,6 +25,7 @@ edwr_class <- function(x, new_class) {
 }
 
 tz <- "uS/Central"
+stroke <- "HH STRK"
 
 raw <- list.files("data/raw/ich_weekly", full.names = TRUE) %>%
     sort()
@@ -66,7 +67,7 @@ data_locations <- raw[n_files] %>%
     group_by(millennium.id) %>%
     arrange(millennium.id, unit.count) %>%
     distinct(millennium.id, .keep_all = TRUE) %>%
-    filter(location == "HH STRK")
+    filter(location == stroke)
 
 data_patients <- raw[n_files] %>%
     read_excel(
@@ -124,7 +125,8 @@ data_vitals <- raw[n_files] %>%
     mutate_at("vital.datetime", with_tz, tzone = tz) %>%
     mutate_at("vital.result", as.numeric) %>%
     mutate_at("vital", str_to_lower) %>%
-    semi_join(data_locations, by = "millennium.id")
+    semi_join(data_locations, by = "millennium.id") %>%
+    filter(vital.location == stroke)
 
 vitals_sbp <- data_vitals %>%
     filter(
