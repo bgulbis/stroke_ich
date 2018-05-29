@@ -24,7 +24,7 @@ edwr_class <- function(x, new_class) {
     x
 }
 
-tz <- "uS/Central"
+tz <- "US/Central"
 stroke <- "HH STRK"
 
 raw <- list.files("data/raw/ich_weekly", full.names = TRUE) %>%
@@ -33,7 +33,10 @@ raw <- list.files("data/raw/ich_weekly", full.names = TRUE) %>%
 n_files <- length(raw)
 
 update_time <- raw[n_files] %>%
-    str_replace_all("patients_ich_|\\.xlsx", "") %>%
+    str_replace_all(
+        "data/raw/ich_weekly/ich_stroke_weekly_|\\.xlsx",
+        ""
+    ) %>%
     ymd_hms()
 
 # find patients admitted to stroke unit first
@@ -186,10 +189,13 @@ vitals <- vitals_sbp %>%
         vital.location
     )
 
+# save data to W: drive
+
 write.xlsx(
     vitals,
     paste0(
-        "data/external/",
+        # "data/external/",
+        "W:\\HER\\HER - Pharmacy\\Stroke Unit\\",
         format(update_time, "%Y-%m-%d"),
         "_ich_sbp_data.xlsx"
     )
