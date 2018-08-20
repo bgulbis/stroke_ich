@@ -194,9 +194,7 @@ vitals <- vitals_sbp %>%
 write.xlsx(
     vitals,
     paste0(
-        # "data/external/",
-        # "W:\\HER\\HER - Pharmacy\\Stroke Unit\\",
-        "/mnt/hgfs/W_Pharmacy/Stroke Unit/",
+        "/home/brian/Public/W_Pharmacy/Stroke Unit/",
         format(update_time, "%Y-%m-%d"),
         "_ich_sbp_data.xlsx"
     )
