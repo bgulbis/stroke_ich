@@ -79,6 +79,7 @@ data_patients <- raw[n_files] %>%
         col_names = c(
             "millennium.id",
             "fin",
+            "arrival.datetime",
             "admit.datetime",
             "discharge.datetime",
             "facility",
@@ -87,6 +88,7 @@ data_patients <- raw[n_files] %>%
         col_types = c(
             "numeric",
             "text",
+            "date",
             "date",
             "date",
             "text",
@@ -128,8 +130,8 @@ data_vitals <- raw[n_files] %>%
     mutate_at("vital.datetime", with_tz, tzone = tz) %>%
     mutate_at("vital.result", as.numeric) %>%
     mutate_at("vital", str_to_lower) %>%
-    semi_join(data_locations, by = "millennium.id") %>%
-    filter(vital.location == stroke)
+    semi_join(data_locations, by = "millennium.id") 
+    # filter(vital.location == stroke)
 
 vitals_sbp <- data_vitals %>%
     filter(
@@ -141,15 +143,33 @@ vitals_sbp <- data_vitals %>%
     arrange(millennium.id, vital.datetime) %>%
     group_by(millennium.id) %>%
     mutate(
-        sbp.160 = (vital.result < 160 & lag(vital.result) < 160),
-        sbp.140 = (vital.result < 140 & lag(vital.result) < 140),
+        sbp.150 = (vital.result < 150 & lag(vital.result) < 150),
+        # sbp.140 = (vital.result < 140 & lag(vital.result) < 140),
         bp.time = difftime(
             lead(vital.datetime),
             vital.datetime,
             units = "min"
         )
     ) %>%
-    mutate_at("bp.time", as.numeric)
+    mutate_at("bp.time", as.numeric) %>%
+    left_join(
+        data_patients[c("millennium.id", "arrival.datetime", "admit.datetime")], 
+        by = "millennium.id"
+    ) %>%
+    group_by(millennium.id) %>% 
+    arrange(millennium.id, vital.datetime) %>%
+    mutate(
+        admit.vital.hours = difftime(
+            vital.datetime, 
+            admit.datetime, 
+            units = "hours"
+        ),
+        arrival.vital.hours = difftime(
+            vital.datetime, 
+            arrival.datetime, 
+            units = "hours"
+        )
+    ) 
 
 vitals_hr <- data_vitals %>%
     filter(
@@ -166,27 +186,68 @@ vitals_hr <- data_vitals %>%
         millennium.id,
         vital.datetime,
         hr = vital.result
-    )
+    ) 
+    
+vitals_sbp_150 <- vitals_sbp %>%
+    filter(vital.result < 150) %>%
+    mutate(
+        next.sbp.150 = difftime(
+            lead(vital.datetime),
+            vital.datetime,
+            units = "hours"
+        )
+    ) %>%
+    ungroup() %>%
+    select(millennium.id, vital.datetime, vital.result, next.sbp.150)
+
+vitals_cum_sbp_150 <- vitals_sbp %>%
+    # filter(vital.result < 150) %>%
+    mutate(
+        next.vital = difftime(
+            lead(vital.datetime),
+            vital.datetime,
+            units = "hours"
+        ),
+        lt.150 = vital.result < 150
+    ) %>%
+    filter(lt.150) %>%
+    group_by(millennium.id) %>%
+    mutate_at("next.vital", as.numeric) %>%
+    mutate(cum.sbp.150 = cumsum(next.vital)) %>%
+    ungroup() %>%
+    select(millennium.id, vital.datetime, vital.result, cum.sbp.150)
 
 vitals <- vitals_sbp %>%
+    left_join(
+        vitals_sbp_150, 
+        by = c("millennium.id", "vital.datetime", "vital.result")
+    ) %>%
+    left_join(
+        vitals_cum_sbp_150, 
+        by = c("millennium.id", "vital.datetime", "vital.result")
+    ) %>%
     full_join(
         vitals_hr,
         by = c("millennium.id", "vital.datetime")
     ) %>%
+    left_join(data_patients[c("millennium.id", "fin")], by = "millennium.id") %>%
     arrange(millennium.id, vital.datetime) %>%
-    left_join(data_patients, by = "millennium.id") %>%
     ungroup() %>%
     select(
         fin,
+        arrival.datetime,
         admit.datetime,
         vital,
         vital.datetime,
         bp.time,
         vital.result,
         hr,
-        sbp.160,
-        sbp.140,
-        vital.location
+        sbp.150,
+        vital.location,
+        admit.vital.hours,
+        arrival.vital.hours,
+        next.sbp.150,
+        cum.sbp.150
     )
 
 # save data to W: drive
