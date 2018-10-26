@@ -98,7 +98,7 @@ data_patients <- raw[n_files] %>%
     edwr_class("vitals") %>%
     mutate_at("millennium.id", as.character) %>%
     mutate_at(
-        c("admit.datetime", "discharge.datetime"),
+        c("arrival.datetime", "admit.datetime", "discharge.datetime"),
         with_tz,
         tzone = tz
     ) %>%
