@@ -226,7 +226,7 @@ vitals <- vitals_sbp %>%
         vitals_cum_sbp_150, 
         by = c("millennium.id", "vital.datetime", "vital.result")
     ) %>%
-    full_join(
+    left_join(
         vitals_hr,
         by = c("millennium.id", "vital.datetime")
     ) %>%
