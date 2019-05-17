@@ -30,3 +30,15 @@ get_data <- function(path, pattern, col_types = NULL) {
 # data -------------------------------------------------
 
 data_patients <- get_data(dir_data, "patients")
+data_vitals <- get_data(dir_data, "vitals")
+
+
+# sbp --------------------------------------------------
+
+df_sbp <- data_vitals %>%
+    filter(
+        event %in% c("Systolic Blood Pressure", "Arterial Systolic BP 1")
+    ) %>%
+    arrange(encounter_id, event_datetime) 
+
+
