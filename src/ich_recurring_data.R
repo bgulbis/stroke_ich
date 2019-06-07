@@ -1,6 +1,6 @@
 library(tidyverse)
 library(lubridate)
-library(zoo)
+# library(zoo)
 library(data.table)
 
 tz <- "US/Central"
@@ -71,33 +71,40 @@ df_pts <- df_admit_unit %>%
 
 # sbp mean/median --------------------------------------
 
-count_back <- function(x, back = 2) {
-    purrr::map_int(x, function(y) sum(x >= y - lubridate::hours(2) & x <= y))
-}
+# count_back <- function(x, back = 2) {
+#     purrr::map_int(x, function(y) sum(x >= y - lubridate::hours(2) & x <= y))
+# }
 
 dt_vitals <- data.table(data_vitals)[
     admit_event_hr >= 0,
-    .(encounter_id, event_datetime, result)][
+    .(encounter_id, event_id, admit_event_hr, event_datetime, result)][
         order(encounter_id, event_datetime)]
 
-dt_window <- dt_vitals[, 
-                       by=.(encounter_id), 
-                       .(window_low = event_datetime - hours(2), window_high = event_datetime)]
-
-# dt_window <- data_vitals %>%
-#     filter(admit_event_hr >= 0) %>%
-#     arrange(encounter_id, admit_event_hr) %>%
-#     group_by(encounter_id) %>%
-#     mutate(window_low = event_datetime - hours(2)) %>%
-#     select(encounter_id, event_id, window_low, window_high = event_datetime) %>%
-#     data.table()
-    # mutate(rows_back = count_back(event_datetime))
-
-x <- dt_vitals[dt_window, 
-               on=.(encounter_id, event_datetime >= window_low, event_datetime <= window_high), 
-               .(max_sbp = max(result)), 
-               by=.EACHI]
+dt_window <- dt_vitals[, .(encounter_id, event_id, window_low = event_datetime - hours(2), window_high = event_datetime)]
     
+x <- dt_vitals[dt_window, 
+               on=.(
+                   encounter_id, 
+                   event_datetime >= window_low, 
+                   event_datetime <= window_high
+               ), 
+               .(max_sbp = max(result)), 
+               by=.EACHI][, event_datetime := NULL]
+    
+x2 <- unique(x, by = c("encounter_id", "event_datetime"))
+
+x3 <- dt_vitals[x2, on=.(encounter_id, event_datetime)] %>% 
+    as_tibble() %>%
+    group_by(encounter_id) %>%
+    mutate(time_first = difftime(event_datetime, first(event_datetime), units = "hours")) %>%
+    filter(
+        time_first >= 2,
+        max_sbp < 150
+    ) %>%
+    distinct(encounter_id, .keep_all = TRUE)
+
+# , inrange(event_datetime, window_low, window_high))]
+
 # df2 <- df_time_sbp_goal %>%
 #     mutate(
 #         max_2h = zoo::rollapplyr(result, rows_back, max, fill = NA, partial = TRUE),
