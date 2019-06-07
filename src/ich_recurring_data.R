@@ -39,6 +39,14 @@ get_data <- function(path, pattern, col_types = NULL) {
         rename_all(stringr::str_to_lower)
 }
 
+# dt_vitals <- list.files(dir_data, "vitals", full.names = TRUE) %>%
+#     lapply(fread) %>%
+#     rbindlist()
+#     
+# names(dt_vitals) <- str_to_lower(names(dt_vitals))
+# 
+# dt_vitals <- dt_vitals[, event_datetime := as_datetime(event_datetime, tz = tz, format = "%Y-%m-%dT%H:%M:%S")]
+# 
 # data -------------------------------------------------
 
 data_patients <- get_data(dir_data, "patients")
@@ -142,3 +150,10 @@ df_sbp_admit_unit <- data_vitals %>%
     group_by(nurse_unit_admit, sbp_gt150_arrive, n) %>%
     summarize_at("result", summary_fx, na.rm = TRUE)
 
+# time from admit until sbp < 150 for at least 2 hours
+df_sbp_lt150 <- dt_sbp_lt150 %>%
+    as_tibble() %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    add_count(nurse_unit_admit, sbp_gt150_arrive) %>%
+    group_by(nurse_unit_admit, sbp_gt150_arrive, n) %>%
+    summarize_at("admit_event_hr", summary_fx, na.rm = TRUE)
