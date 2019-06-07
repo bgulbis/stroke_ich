@@ -71,72 +71,47 @@ df_pts <- df_admit_unit %>%
 
 # sbp mean/median --------------------------------------
 
-# count_back <- function(x, back = 2) {
-#     purrr::map_int(x, function(y) sum(x >= y - lubridate::hours(2) & x <= y))
-# }
-
 dt_vitals <- data.table(data_vitals)[
     admit_event_hr >= 0,
-    .(encounter_id, event_id, admit_event_hr, event_datetime, result)][
-        order(encounter_id, event_datetime)]
+    .(
+        encounter_id, 
+        event_id,
+        admit_event_hr, 
+        event_datetime, 
+        result
+    )
+    ][order(encounter_id, event_datetime)]
 
-dt_window <- dt_vitals[, .(encounter_id, event_id, window_low = event_datetime - hours(2), window_high = event_datetime)]
-    
-x <- dt_vitals[dt_window, 
-               on=.(
-                   encounter_id, 
-                   event_datetime >= window_low, 
-                   event_datetime <= window_high
-               ), 
-               .(max_sbp = max(result)), 
-               by=.EACHI][, event_datetime := NULL]
-    
-x2 <- unique(x, by = c("encounter_id", "event_datetime"))
+dt_window <- dt_vitals[, .(
+    encounter_id, 
+    event_id, 
+    window_low = event_datetime - hours(2), 
+    window_high = event_datetime
+)]
 
-x3 <- dt_vitals[x2, on=.(encounter_id, event_datetime)] %>% 
-    as_tibble() %>%
-    group_by(encounter_id) %>%
-    mutate(time_first = difftime(event_datetime, first(event_datetime), units = "hours")) %>%
-    filter(
-        time_first >= 2,
-        max_sbp < 150
-    ) %>%
-    distinct(encounter_id, .keep_all = TRUE)
+dt_max_sbp <- dt_vitals[
+    dt_window, 
+    on=.(
+        encounter_id, 
+        event_datetime >= window_low, 
+        event_datetime <= window_high
+    ), 
+    .(max_sbp = max(result)), 
+    by=.EACHI
+    ][, event_datetime := NULL
+      ][, head(.SD, 1), by = c("encounter_id", "event_datetime")]
 
-# , inrange(event_datetime, window_low, window_high))]
+dt_sbp_lt150 <- dt_vitals[
+    dt_max_sbp, on=.(encounter_id, event_datetime)
+    ][, `:=`(
+        time_first = difftime(
+            event_datetime, 
+            first(event_datetime), 
+            units = "hours")
+    )
+    ][time_first >= 2 & max_sbp < 150
+      ][, head(.SD, 1), by = encounter_id]
 
-# df2 <- df_time_sbp_goal %>%
-#     mutate(
-#         max_2h = zoo::rollapplyr(result, rows_back, max, fill = NA, partial = TRUE),
-#         start_2h = difftime(
-#             event_datetime,
-#             first(event_datetime),
-#             units = "hours"
-#         )
-#     ) %>%
-#     filter(start_2h >= 2)
-# 
-#     mutate(
-#         time_sbp = difftime(
-#             event_datetime,
-#             lag(event_datetime),
-#             units = "hours"
-#         )
-#     )
-    
-
-# purrr::map_int(x, function(y) sum(x >= y - lubridate::days(back) & x <= y))
-    
-    mutate(
-        sbp_lt150_x2 = (result < 150 & lag(result) < 150)
-    ) %>%
-    filter(sbp_lt150_x2) %>%
-    distinct(encounter_id, .keep_all = TRUE) %>%
-    inner_join(df_pts, by = "encounter_id") %>%
-    ungroup() %>%
-    add_count(nurse_unit_admit, sbp_gt150_arrive) %>%
-    group_by(nurse_unit_admit, sbp_gt150_arrive, n) %>%
-    summarize_at("arrive_event_hr", summary_fx, na.rm = TRUE)
 
 df_sbp_arrive <- data_vitals %>%
     arrange(encounter_id, arrive_event_hr) %>%
