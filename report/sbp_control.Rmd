@@ -196,6 +196,22 @@ dt_sbp_lt150 %>%
     )
 ```
 
+```{r, fig.cap="Systolic blood pressure control over first 24 hours"}
+data_vitals %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    filter(admit_event_hr < 24 * 7) %>%
+    ggplot(aes(x = arrive_event_hr, y = result, color = nurse_unit_admit)) +
+    geom_hline(yintercept = 150, color = "grey50") +
+    # geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    geom_smooth() +
+    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24 * 8, 24)) +
+    ylab("Systolic blood pressure (mmHg)") +
+    scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    expand_limits(y = c(50, 200)) +
+    coord_cartesian(x = c(-24, 24)) +
+    theme_bg()
+```
+
 ```{r, fig.cap="Systolic blood pressure control over 7 days"}
 data_vitals %>%
     inner_join(df_pts, by = "encounter_id") %>%
@@ -210,4 +226,3 @@ data_vitals %>%
     expand_limits(y = c(50, 200)) +
     theme_bg()
 ```
-
