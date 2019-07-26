@@ -14,6 +14,7 @@ library(tidyverse)
 library(lubridate)
 library(data.table)
 library(themebg)
+library(mbohelpr)
 
 tz_locale <- locale(tz = "US/Central")
 data_month <- floor_date(rollback(now(), FALSE, FALSE), unit = "month")
@@ -31,21 +32,6 @@ summary_fx <- list(
     q25 = ~quantile(., probs = 0.25, na.rm = TRUE),
     q75 = ~quantile(., probs = 0.75, na.rm = TRUE)
 )
-
-get_data <- function(path, pattern, col_types = NULL) {
-    f <- list.files(path, pattern, full.names = TRUE)
-    
-    n <- f %>%
-        purrr::map_int(~ nrow(data.table::fread(.x, select = 1L)))
-    
-    f[n > 0] %>%
-        purrr::map_df(
-            readr::read_csv,
-            locale = tz_locale,
-            col_types = col_types
-        ) %>%
-        rename_all(stringr::str_to_lower)
-}
 
 tbl_cols <- c(
     "Admit Unit",
@@ -196,33 +182,121 @@ dt_sbp_lt150 %>%
     )
 ```
 
-```{r, fig.cap="Systolic blood pressure control over first 24 hours"}
+```{r, fig.cap="Systolic blood pressure control over first 24 hours. Only the first 24 hours of data is used to calculate the smoothed line."}
 data_vitals %>%
     inner_join(df_pts, by = "encounter_id") %>%
-    filter(admit_event_hr < 24 * 7) %>%
-    ggplot(aes(x = arrive_event_hr, y = result, color = nurse_unit_admit)) +
+    filter(arrive_event_hr < 24) %>%
+    ggplot(aes(x = arrive_event_hr, y = result)) +
     geom_hline(yintercept = 150, color = "grey50") +
-    # geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    geom_point(shape = 1, alpha = 0.3, size = 0.5) +
     geom_smooth() +
-    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24 * 8, 24)) +
+    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24, 6)) +
     ylab("Systolic blood pressure (mmHg)") +
-    scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    # scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
     expand_limits(y = c(50, 200)) +
-    coord_cartesian(x = c(-24, 24)) +
+    coord_cartesian(x = c(0, 24)) +
+    facet_wrap(~nurse_unit_admit) +
     theme_bg()
 ```
 
 ```{r, fig.cap="Systolic blood pressure control over 7 days"}
 data_vitals %>%
     inner_join(df_pts, by = "encounter_id") %>%
-    filter(admit_event_hr < 24 * 7) %>%
-    ggplot(aes(x = arrive_event_hr, y = result, color = nurse_unit_admit)) +
+    filter(arrive_event_hr < 24 * 7) %>%
+    ggplot(aes(x = arrive_event_hr, y = result)) +
     geom_hline(yintercept = 150, color = "grey50") +
-    # geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    geom_point(shape = 1, alpha = 0.3, size = 0.5) +
     geom_smooth() +
     scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24 * 8, 24)) +
     ylab("Systolic blood pressure (mmHg)") +
-    scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    # scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
     expand_limits(y = c(50, 200)) +
+    facet_wrap(~nurse_unit_admit) +
+    theme_bg()
+```
+
+```{r}
+df_change <- data_vitals %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    filter(arrive_event_hr < 24) %>%
+    arrange(encounter_id, arrive_event_hr, event) %>%
+    distinct(encounter_id, arrive_event_hr, .keep_all = TRUE) %>%
+    group_by(encounter_id, nurse_unit_admit) %>%
+    mutate(
+      sbp_change = result - lag(result),
+      sbp_change_first = result - first(result),
+      time = arrive_event_hr - lag(arrive_event_hr),
+      change_time = sbp_change / time
+    ) %>%
+    filter(!is.na(sbp_change))
+```
+
+```{r, fig.cap="Change in SBP from previous value over the first 24 hours"}
+df_change %>%
+    ggplot(aes(x = arrive_event_hr, y = sbp_change)) +
+    geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24, 6)) +
+    ylab("SBP Change (mmHg)") +
+    # scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    # expand_limits(y = c(50, 200)) +
+    facet_wrap(~nurse_unit_admit) +
+    theme_bg()
+```
+
+```{r, fig.cap="Change in SBP from first SBP value over the first 24 hours"}
+df_change %>%
+    ggplot(aes(x = arrive_event_hr, y = sbp_change_first)) +
+    geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24, 6)) +
+    ylab("SBP Change (mmHg)") +
+    # scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    # expand_limits(y = c(50, 200)) +
+    facet_wrap(~nurse_unit_admit) +
+    theme_bg()
+```
+
+```{r, fig.cap="Histogram of change in SBP during first 24 hours"}
+df_change %>%
+    ggplot(aes(x = change_time)) +
+    geom_histogram(binwidth = 10) +
+    facet_wrap(~nurse_unit_admit) +
+    coord_cartesian(xlim = c(-200, 200)) +
+    theme_bg()
+  
+```
+
+```{r}
+df_summary <- data_vitals %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    filter(arrive_event_hr < 24) %>%
+    arrange(encounter_id, arrive_event_hr, event) %>%
+    # distinct(encounter_id, arrive_event_hr, .keep_all = TRUE) %>%
+    group_by(encounter_id, nurse_unit_admit) %>%
+    summarize_at(
+      "result", 
+      list(
+        min = min,
+        max = max, 
+        first = first, 
+        last = last
+      )
+    ) %>%
+    mutate(
+      sbp_diff_max = min - max,
+      sbp_diff_first = last - first
+    )
+```
+
+```{r, fig.cap="Distribution of the difference between maximum and minimum SBP for patients during the first 24 hours"}
+df_summary %>%
+    ggplot(aes(x = nurse_unit_admit, y = sbp_diff_max)) +
+    geom_boxplot() +
+    theme_bg()
+```
+
+```{r, fig.cap="Distribution of the difference between first and last SBP values for patients during the first 24 hours"}
+df_summary %>%
+    ggplot(aes(x = nurse_unit_admit, y = sbp_diff_first)) +
+    geom_boxplot() +
     theme_bg()
 ```
