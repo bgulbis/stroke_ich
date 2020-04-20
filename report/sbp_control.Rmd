@@ -1,0 +1,302 @@
+---
+title: "Blood Pressure Control in ICH Patients"
+author: "Brian Gulbis, PharmD, BCPS"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(data.table)
+library(themebg)
+library(mbohelpr)
+
+tz_locale <- locale(tz = "US/Central")
+data_month <- floor_date(rollback(now(), FALSE, FALSE), unit = "month")
+
+month_abbrv <- format(data_month, "%Y-%m")
+
+dir_data <- "../data/tidy/mbo"
+
+target_units <- c("HH 7J", "HH STRK")
+
+summary_fx <- list(
+    mean = mean, 
+    sd = sd, 
+    median = median,
+    q25 = ~quantile(., probs = 0.25, na.rm = TRUE),
+    q75 = ~quantile(., probs = 0.75, na.rm = TRUE)
+)
+
+tbl_cols <- c(
+    "Admit Unit",
+    "SBP >150 on Arrival",
+    "N",
+    "Mean",
+    "Std Dev",
+    "Median",
+    "25th",
+    "75th"
+)
+
+```
+
+```{r}
+data_vitals <- get_data(dir_data, "vitals") %>%
+    filter(
+        !is.na(result),
+        result > 40,
+        result < 250
+    )
+
+df_admit_unit <- data_vitals %>%
+    filter(
+        admit_event_hr >= 0,
+        nurse_unit %in% target_units
+    ) %>%
+    arrange(encounter_id, admit_event_hr) %>%
+    distinct(encounter_id, .keep_all = TRUE) %>%
+    select(encounter_id, nurse_unit_admit = nurse_unit)
+
+df_sbp_gt150_arrive <- data_vitals %>%
+    arrange(encounter_id, arrive_event_hr) %>%
+    distinct(encounter_id, .keep_all = TRUE) %>%
+    inner_join(df_admit_unit, by = "encounter_id") %>%
+    mutate(sbp_gt150_arrive = result > 150) %>%
+    select(encounter_id, sbp_gt150_arrive)
+
+df_pts <- df_admit_unit %>%
+    inner_join(df_sbp_gt150_arrive, by = "encounter_id")
+```
+
+```{r}
+data_vitals %>%
+    arrange(encounter_id, arrive_event_hr) %>%
+    distinct(encounter_id, .keep_all = TRUE) %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    add_count(nurse_unit_admit, sbp_gt150_arrive) %>%
+    group_by(nurse_unit_admit, sbp_gt150_arrive, n) %>%
+    summarize_at("result", summary_fx, na.rm = TRUE) %>%
+    knitr::kable(
+        caption = "SBP summary upon arrival to hospital",
+        col.names = tbl_cols,
+        digits = 2
+    )
+
+```
+
+
+```{r}
+data_vitals %>%
+    filter(admit_event_hr >= 0) %>%
+    arrange(encounter_id, admit_event_hr) %>%
+    distinct(encounter_id, .keep_all = TRUE) %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    add_count(nurse_unit_admit, sbp_gt150_arrive) %>%
+    group_by(nurse_unit_admit, sbp_gt150_arrive, n) %>%
+    summarize_at("result", summary_fx, na.rm = TRUE) %>%
+    knitr::kable(
+        caption = "SBP summary upon hospital admission",
+        col.names = tbl_cols,
+        digits = 2
+    )
+```
+
+```{r}
+data_vitals %>%
+    filter(
+        admit_event_hr >= 0,
+        nurse_unit %in% target_units
+    ) %>%
+    arrange(encounter_id, admit_event_hr) %>%
+    distinct(encounter_id, .keep_all = TRUE) %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    add_count(nurse_unit_admit, sbp_gt150_arrive) %>%
+    group_by(nurse_unit_admit, sbp_gt150_arrive, n) %>%
+    summarize_at("result", summary_fx, na.rm = TRUE) %>%
+    knitr::kable(
+        caption = "SBP summary upon arrival to ICU or Stroke unit",
+        col.names = tbl_cols,
+        digits = 2
+    )
+```
+
+
+```{r}
+dt_vitals <- data.table(data_vitals)[
+    admit_event_hr >= 0,
+    .(
+        encounter_id, 
+        event_id,
+        admit_event_hr, 
+        event_datetime, 
+        result
+    )
+    ][order(encounter_id, event_datetime)]
+
+dt_window <- dt_vitals[, .(
+    encounter_id, 
+    event_id, 
+    window_low = event_datetime - hours(2), 
+    window_high = event_datetime
+)]
+
+dt_max_sbp <- dt_vitals[
+    dt_window, 
+    on=.(
+        encounter_id, 
+        event_datetime >= window_low, 
+        event_datetime <= window_high
+    ), 
+    .(max_sbp = max(result)), 
+    by=.EACHI
+    ][, event_datetime := NULL
+      ][, head(.SD, 1), by = c("encounter_id", "event_datetime")]
+
+dt_sbp_lt150 <- dt_vitals[
+    dt_max_sbp, on=.(encounter_id, event_datetime)
+    ][, `:=`(
+        time_first = difftime(
+            event_datetime, 
+            first(event_datetime), 
+            units = "hours")
+    )
+    ][time_first >= 2 & max_sbp < 150
+      ][, head(.SD, 1), by = encounter_id]
+
+dt_sbp_lt150 %>%
+    as_tibble() %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    add_count(nurse_unit_admit, sbp_gt150_arrive) %>%
+    group_by(nurse_unit_admit, sbp_gt150_arrive, n) %>%
+    summarize_at("admit_event_hr", summary_fx, na.rm = TRUE) %>%
+    knitr::kable(
+        caption = "Time (in hours) to SBP < 150 for at least two hours",
+        col.names = tbl_cols,
+        digits = 2
+    )
+```
+
+```{r, fig.cap="Systolic blood pressure control over first 24 hours. Only the first 24 hours of data is used to calculate the smoothed line."}
+data_vitals %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    filter(arrive_event_hr < 24) %>%
+    ggplot(aes(x = arrive_event_hr, y = result)) +
+    geom_hline(yintercept = 150, color = "grey50") +
+    geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    geom_smooth() +
+    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24, 6)) +
+    ylab("Systolic blood pressure (mmHg)") +
+    # scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    expand_limits(y = c(50, 200)) +
+    coord_cartesian(x = c(0, 24)) +
+    facet_wrap(~nurse_unit_admit) +
+    theme_bg()
+```
+
+```{r, fig.cap="Systolic blood pressure control over 7 days"}
+data_vitals %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    filter(arrive_event_hr < 24 * 7) %>%
+    ggplot(aes(x = arrive_event_hr, y = result)) +
+    geom_hline(yintercept = 150, color = "grey50") +
+    geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    geom_smooth() +
+    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24 * 8, 24)) +
+    ylab("Systolic blood pressure (mmHg)") +
+    # scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    expand_limits(y = c(50, 200)) +
+    facet_wrap(~nurse_unit_admit) +
+    theme_bg()
+```
+
+```{r}
+df_change <- data_vitals %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    filter(arrive_event_hr < 24) %>%
+    arrange(encounter_id, arrive_event_hr, event) %>%
+    distinct(encounter_id, arrive_event_hr, .keep_all = TRUE) %>%
+    group_by(encounter_id, nurse_unit_admit) %>%
+    mutate(
+      sbp_change = result - lag(result),
+      sbp_change_first = result - first(result),
+      time = arrive_event_hr - lag(arrive_event_hr),
+      change_time = sbp_change / time
+    ) %>%
+    filter(!is.na(sbp_change))
+```
+
+```{r, fig.cap="Change in SBP from previous value over the first 24 hours"}
+df_change %>%
+    ggplot(aes(x = arrive_event_hr, y = sbp_change)) +
+    geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24, 6)) +
+    ylab("SBP Change (mmHg)") +
+    # scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    # expand_limits(y = c(50, 200)) +
+    facet_wrap(~nurse_unit_admit) +
+    theme_bg()
+```
+
+```{r, fig.cap="Change in SBP from first SBP value over the first 24 hours"}
+df_change %>%
+    ggplot(aes(x = arrive_event_hr, y = sbp_change_first)) +
+    geom_point(shape = 1, alpha = 0.3, size = 0.5) +
+    scale_x_continuous("Time from arrival (hours)", breaks = seq(0, 24, 6)) +
+    ylab("SBP Change (mmHg)") +
+    # scale_color_manual("Admit Unit", values = c("#377eb8", "#4daf4a")) +
+    # expand_limits(y = c(50, 200)) +
+    facet_wrap(~nurse_unit_admit) +
+    theme_bg()
+```
+
+```{r, fig.cap="Histogram of change in SBP during first 24 hours"}
+df_change %>%
+    ggplot(aes(x = change_time)) +
+    geom_histogram(binwidth = 10) +
+    facet_wrap(~nurse_unit_admit) +
+    coord_cartesian(xlim = c(-200, 200)) +
+    theme_bg()
+  
+```
+
+```{r}
+df_summary <- data_vitals %>%
+    inner_join(df_pts, by = "encounter_id") %>%
+    filter(arrive_event_hr < 24) %>%
+    arrange(encounter_id, arrive_event_hr, event) %>%
+    # distinct(encounter_id, arrive_event_hr, .keep_all = TRUE) %>%
+    group_by(encounter_id, nurse_unit_admit) %>%
+    summarize_at(
+      "result", 
+      list(
+        min = min,
+        max = max, 
+        first = first, 
+        last = last
+      )
+    ) %>%
+    mutate(
+      sbp_diff_max = min - max,
+      sbp_diff_first = last - first
+    )
+```
+
+```{r, fig.cap="Distribution of the difference between maximum and minimum SBP for patients during the first 24 hours"}
+df_summary %>%
+    ggplot(aes(x = nurse_unit_admit, y = sbp_diff_max)) +
+    geom_boxplot() +
+    theme_bg()
+```
+
+```{r, fig.cap="Distribution of the difference between first and last SBP values for patients during the first 24 hours"}
+df_summary %>%
+    ggplot(aes(x = nurse_unit_admit, y = sbp_diff_first)) +
+    geom_boxplot() +
+    theme_bg()
+```

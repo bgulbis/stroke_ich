@@ -21,6 +21,7 @@ mbo_id <- concat_encounters(id$millennium.id)
 
 # run MBO query
 #   * Vitals - BP
+#   * Vitals - HR
 
 vitals_sbp <- dir_raw %>%
     read_data("post_vitals", FALSE) %>%
