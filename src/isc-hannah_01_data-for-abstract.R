@@ -3,6 +3,7 @@ library(readxl)
 library(lubridate)
 library(mbohelpr)
 library(openxlsx)
+library(themebg)           
 
 pts <- read_excel(
     "U:/Data/stroke_ich/isc_hannah/external/isc_patient_list.xlsx",
@@ -160,25 +161,32 @@ write.xlsx(l, paste0("U:/Data/stroke_ich/isc_hannah/final/isc_data_final_", toda
 
 # graphs ------------------------------------------------------------------
 
-library(themebg)           
+df_oe <- read_excel("U:/Data/stroke_ich/isc_hannah/raw/isc_los_o-e-ratio.xlsx") %>%
+    select(
+        fin = `Encounter Number`,
+        los_oe = `LOS O/E`
+    ) %>%
+    mutate(across(fin, str_replace_all, pattern = "C0", replacement = ""))
 
 df_sbp_fig <- df_sbp %>%
     semi_join(pts, by = "fin") %>%
     inner_join(final_data[c("fin", "los")], by = "fin") %>%
-    mutate(across(los, ~. > 4)) %>%
+    inner_join(df_oe, by = "fin") %>%
+    mutate(across(los_oe, ~. >= 0.8)) %>% 
     group_by(fin) %>%
     mutate(time = as.numeric(difftime(vital_datetime, first(vital_datetime), units = "hours"))) 
 
 df_sbp_fig %>%
     filter(time < 96) %>%
-    ggplot(aes(x = time, y = result_val, linetype = los)) +
+    ggplot(aes(x = time, y = result_val, linetype = los_oe)) +
     # geom_point(alpha = 0.5, shape = 1) +
     geom_smooth(color = "black") +
-    ggtitle("Figure 1. Systolic blood pressure in stroke patients with delayed discharge") +
+    # ggtitle("Figure 1. Systolic blood pressure in stroke patients with delayed discharge") +
     scale_x_continuous("Hours from arrival", breaks = seq(0, 96, 24)) +
     ylab("Systolic blood pressure (mmHg)") +
-    scale_linetype_manual(NULL, values = c("solid", "dotted"), labels = c("LOS </= 4 days", "LOS > 4 days")) +
-    theme_bg() +
+    scale_linetype_manual(NULL, values = c("solid", "dotted"), labels = c("LOS O/E < 0.8", "LOS O/E >/= 0.8")) +
+    coord_cartesian(ylim = c(100, 200)) +
+    theme_bg_print() +
     theme(legend.position = "top")
 
 ggsave("figs/isc_fig1_sbp.jpg", device = "jpeg", width = 8, height = 6, units = "in")
