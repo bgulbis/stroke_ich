@@ -46,3 +46,24 @@ l <- list(
 
 write.xlsx(l, paste0("U:/Data/stroke_ich/hannah/final/sbp_data_", today(), ".xlsx"))
 
+
+# extra -------------------------------------------------------------------
+
+df_sbp_daily_alt <- raw_sbp %>%
+    mutate(
+        hosp_day = difftime(vital_datetime, arrive_datetime, units = "hours"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, ~. / 24),
+        across(hosp_day, ~if_else(. < 0, 0, .)),
+        across(hosp_day, floor),
+        across(hosp_day, ~. + 1),
+        event = "sbp"
+    ) %>%
+    filter(hosp_day < 100) %>%
+    rename(event_datetime = vital_datetime) %>%
+    calc_runtime(vars(fin, hosp_day), id = fin) %>%
+    summarize_data(vars(fin, hosp_day), id = fin, result = result_val) %>%
+    select(-event, -first_datetime, -last_datetime, -cum_sum, -first_result, -last_result, -auc, -duration)
+
+write.xlsx(df_sbp_daily_alt, "U:/Data/stroke_ich/hannah/final/sbp_data_by_hosp_day.xlsx")
+
