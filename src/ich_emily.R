@@ -35,6 +35,20 @@ df_sbp_6hr <- df_sbp %>%
     semi_join(pts_sbp, by = "fin") %>%
     select(fin, sbp_6h = result_val)
 
+df_sbp_12hr <- df_sbp %>%
+    mutate(sbp12 = abs(12 - arrive_event_hrs)) %>%
+    arrange(fin, sbp12) %>%
+    distinct(fin, .keep_all = TRUE) %>%
+    semi_join(pts_sbp, by = "fin") %>%
+    select(fin, sbp_12h = result_val)
+
+df_sbp_18hr <- df_sbp %>%
+    mutate(sbp18 = abs(18 - arrive_event_hrs)) %>%
+    arrange(fin, sbp18) %>%
+    distinct(fin, .keep_all = TRUE) %>%
+    semi_join(pts_sbp, by = "fin") %>%
+    select(fin, sbp_18h = result_val)
+
 df_sbp_24hr <- df_sbp %>%
     mutate(sbp24 = abs(24 - arrive_event_hrs)) %>%
     arrange(fin, sbp24) %>%
@@ -44,9 +58,13 @@ df_sbp_24hr <- df_sbp %>%
 
 df_sbp_change <- df_sbp_arrive %>%
     left_join(df_sbp_6hr, by = "fin") %>%
+    left_join(df_sbp_12hr, by = "fin") %>%
+    left_join(df_sbp_18hr, by = "fin") %>%
     left_join(df_sbp_24hr, by = "fin") %>%
     mutate(
         sbp_chg_6h = (sbp_6h - sbp_arrive) / sbp_arrive,
+        sbp_chg_12h = (sbp_12h - sbp_arrive) / sbp_arrive,
+        sbp_chg_18h = (sbp_18h - sbp_arrive) / sbp_arrive,
         sbp_chg_24h = (sbp_24h - sbp_arrive) / sbp_arrive
     )
 
