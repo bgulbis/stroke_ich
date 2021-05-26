@@ -67,3 +67,38 @@ df_sbp_daily_alt <- raw_sbp %>%
 
 write.xlsx(df_sbp_daily_alt, "U:/Data/stroke_ich/hannah/final/sbp_data_by_hosp_day.xlsx")
 
+
+# graph -------------------------------------------------------------------
+
+df_oe <- read_excel("U:/Data/stroke_ich/hannah/raw/pt_groups.xlsx") %>%
+    select(
+        fin = `Patient`,
+        los_oe = `O/E Ratio >0.8 (DELAYED)`
+    ) %>%
+    mutate(across(fin, as.character))
+
+df_sbp_fig <- df_oe %>%
+    inner_join(raw_sbp, by = "fin") %>%
+    mutate(
+        arrive_sbp_hrs = difftime(vital_datetime, arrive_datetime, units = "hours"),
+        across(arrive_sbp_hrs, as.numeric)
+    ) %>%
+    filter(
+        arrive_sbp_hrs >= 0,
+        arrive_sbp_hrs <= 96
+    )
+
+df_sbp_fig %>%
+    ggplot(aes(x = arrive_sbp_hrs, y = result_val, linetype = los_oe)) +
+    # geom_point(alpha = 0.5, shape = 1) +
+    geom_smooth(color = "black") +
+    # ggtitle("Figure 1. Systolic blood pressure in stroke patients with delayed discharge") +
+    scale_x_continuous("Hours from arrival", breaks = seq(0, 96, 24)) +
+    ylab("Systolic blood pressure (mmHg)") +
+    scale_linetype_manual(NULL, values = c("solid", "dotted"), labels = c("LOS O/E < 0.8", "LOS O/E >/= 0.8")) +
+    coord_cartesian(ylim = c(100, 200)) +
+    theme_bg_print() +
+    theme(legend.position = "top")
+
+ggsave("figs/hannah_fig1_sbp.jpg", device = "jpeg", width = 8, height = 6, units = "in")
+
