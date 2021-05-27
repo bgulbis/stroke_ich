@@ -1,6 +1,7 @@
 library(tidyverse)
 library(readxl)
 library(openxlsx)
+library(themebg)
 
 pts <- read_excel("U:/Data/stroke_ich/emily/raw/patients.xlsx") %>%
     rename_all(str_to_lower) %>%
@@ -69,3 +70,61 @@ df_sbp_change <- df_sbp_arrive %>%
     )
 
 write.xlsx(df_sbp_change, "U:/Data/stroke_ich/emily/final/ich_sbp_change.xlsx")
+
+
+# graph -------------------------------------------------------------------
+
+pt_groups <- read_excel("U:/Data/stroke_ich/emily/raw/patient_groups.xlsx") %>%
+    select(
+        aki = `AKI Group FIN`,
+        no_aki = `No AKI Group FIN`
+    ) %>%
+    pivot_longer(cols = c(aki, no_aki), names_to = "group", values_to = "fin") %>%
+    mutate(across(fin, as.character))
+
+df_fig <- df_sbp %>%
+    inner_join(pt_groups, by = "fin") %>%
+    filter(
+        arrive_event_hrs >= 0,
+        arrive_event_hrs <= 48
+    )
+
+g_fig <- df_fig %>%
+    ggplot(aes(x = arrive_event_hrs, y = result_val, linetype = group)) +
+    # geom_point(alpha = 0.5, shape = 1) +
+    geom_smooth(color = "black") +
+    # ggtitle("Figure 1. Systolic blood pressure in stroke patients with delayed discharge") +
+    scale_x_continuous("Hours from arrival", breaks = seq(0, 48, 12)) +
+    ylab("Systolic blood pressure (mmHg)") +
+    scale_linetype_manual(NULL, values = c("solid", "dotted"), labels = c("AKI", "No AKI")) +
+    coord_cartesian(ylim = c(100, 250)) +
+    theme_bg_print() +
+    theme(legend.position = "top")
+
+g_fig
+
+x <- ggplot_build(g_fig)
+df_x <- x$data[[1]]
+
+df_fig <- df_x %>%
+    select(x, y, group) %>%
+    pivot_wider(names_from = group, values_from = y)
+
+write.xlsx(df_fig, "U:/Data/stroke_ich/emily/final/data_sbp_graph.xlsx")
+
+
+g_fig2 <- df_fig %>%
+    filter(arrive_event_hrs <= 24) %>%
+    ggplot(aes(x = arrive_event_hrs, y = result_val, linetype = group)) +
+    # geom_point(alpha = 0.5, shape = 1) +
+    geom_smooth(color = "black") +
+    # ggtitle("Figure 1. Systolic blood pressure in stroke patients with delayed discharge") +
+    scale_x_continuous("Hours from arrival", breaks = seq(0, 24, 6)) +
+    ylab("Systolic blood pressure (mmHg)") +
+    scale_linetype_manual(NULL, values = c("solid", "dotted"), labels = c("AKI", "No AKI")) +
+    coord_cartesian(ylim = c(100, 250)) +
+    theme_bg_print() +
+    theme(legend.position = "top")
+
+g_fig2
+

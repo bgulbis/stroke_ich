@@ -4,6 +4,9 @@ library(lubridate)
 library(mbohelpr)
 library(openxlsx)
 library(themebg)           
+library(officer)
+library(rvg)
+library(mschart)
 
 pts <- read_excel(
     "U:/Data/stroke_ich/hannah/raw/sbp_fins.xlsx", 
@@ -88,7 +91,7 @@ df_sbp_fig <- df_oe %>%
         arrive_sbp_hrs <= 96
     )
 
-df_sbp_fig %>%
+g_fig <- df_sbp_fig %>%
     ggplot(aes(x = arrive_sbp_hrs, y = result_val, linetype = los_oe)) +
     # geom_point(alpha = 0.5, shape = 1) +
     geom_smooth(color = "black") +
@@ -99,6 +102,30 @@ df_sbp_fig %>%
     coord_cartesian(ylim = c(100, 200)) +
     theme_bg_print() +
     theme(legend.position = "top")
+    
+x <- ggplot_build(g_fig)
+df_x <- x$data[[1]]
+
+df_fig <- df_x %>%
+    select(x, y, group) %>%
+    pivot_wider(names_from = group, values_from = y)
+
+write.xlsx(df_fig, "U:/Data/stroke_ich/hannah/final/data_sbp_graph_hannah.xlsx")
+
+s_fig <- ms_scatterchart(data = df_x, x = "x", y = "y", group = "group") %>%
+    chart_settings(scatterstyle = "line")
 
 ggsave("figs/hannah_fig1_sbp.jpg", device = "jpeg", width = 8, height = 6, units = "in")
+
+r_fig <- dml(ggobj = g_fig)
+
+pptx <- read_pptx() %>%
+    # set_theme(my_theme) %>%
+    add_slide(layout = "Title and Content", master = "Office Theme") %>%
+    ph_with(r_fig, location = ph_location_type("body")) %>%
+    add_slide(layout = "Title and Content", master = "Office Theme") %>%
+    ph_with(s_fig, location = ph_location_type("body")) 
+
+
+print(pptx, target = "report/sbp_fig_hannah.pptx")
 
