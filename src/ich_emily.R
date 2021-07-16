@@ -74,12 +74,22 @@ write.xlsx(df_sbp_change, "U:/Data/stroke_ich/emily/final/ich_sbp_change.xlsx")
 
 # graph -------------------------------------------------------------------
 
-pt_groups <- read_excel("U:/Data/stroke_ich/emily/raw/patient_groups.xlsx") %>%
+raw_groups <- read_excel("U:/Data/stroke_ich/emily/raw/patient_groups.xlsx") %>%
     select(
         aki = `AKI Group FIN`,
         no_aki = `No AKI Group FIN`
-    ) %>%
-    pivot_longer(cols = c(aki, no_aki), names_to = "group", values_to = "fin") %>%
+    )
+
+df_grp_aki <- raw_groups %>%
+    select(fin = aki) %>%
+    filter(!is.na(fin)) %>%
+    mutate(group = "aki")
+
+pt_groups <- raw_groups %>%
+    select(fin = no_aki) %>%
+    filter(!is.na(fin)) %>%
+    mutate(group = "no_aki") %>%
+    bind_rows(df_grp_aki) %>%
     mutate(across(fin, as.character))
 
 df_fig <- df_sbp %>%
@@ -127,4 +137,38 @@ g_fig2 <- df_fig %>%
     theme(legend.position = "top")
 
 g_fig2
+
+df_fig3 <- df_sbp_change %>%
+    left_join(pt_groups, by = "fin") %>%
+    select(fin, group, starts_with("sbp_chg")) %>%
+    pivot_longer(cols=starts_with("sbp_chg")) %>%
+    mutate(
+        across(name, str_replace_all, pattern = "sbp_chg_", replacement = ""),
+        across(name, factor, labels = c("6h", "12h", "18h", "24h")),
+        across(value, ~.*100)
+    )
+
+df_fig3 %>%
+    ggplot(aes(x = name, y = value, color = group)) +
+    geom_boxplot() +
+    xlab("Hours from arrival") +
+    ylab("Change in systolic blood pressure (%)") +
+    scale_color_brewer("Group", palette = "Set1", labels = c("AKI", "No AKI")) +
+    theme_bg()
+
+ggsave("figs/emily_boxplot.jpg", device = "jpeg", width = 8, height = 6, units = "in")
+
+df_fig3_xl <- df_sbp_change %>%
+    left_join(pt_groups, by = "fin") %>%
+    select(fin, group, starts_with("sbp_chg")) %>%
+    pivot_longer(cols=starts_with("sbp_chg")) %>%
+    mutate(
+        across(name, str_replace_all, pattern = "sbp_chg_", replacement = ""),
+        across(name, str_replace_all, pattern = "h", replacement = ""),
+        across(name, factor, labels = c("6", "12", "18", "24")),
+        across(value, ~.*100)
+    ) %>%
+    arrange(name, group)
+    
+write.xlsx(df_fig3_xl, "U:/Data/stroke_ich/emily/final/data_boxplot.xlsx")
 
