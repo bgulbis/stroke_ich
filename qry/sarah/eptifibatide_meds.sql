@@ -115,7 +115,12 @@ WHERE
 		652582238, -- ticagrelor
 		37556844, -- enoxaparin
 		37557146, -- heparin
-		37558355 -- warfarin		
+		37558355, -- warfarin		
+		535736194, -- dabigatran
+		642177890, -- rivaroxaban
+		894197564, -- apixaban
+		1466817862 -- edoxaban
+		
 	)
 	AND CLINICAL_EVENT.VALID_UNTIL_DT_TM > DATE '2099-12-31'
 	AND CLINICAL_EVENT.EVENT_ID = CE_MED_RESULT.EVENT_ID
