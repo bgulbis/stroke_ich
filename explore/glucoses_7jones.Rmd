@@ -1,0 +1,349 @@
+---
+title: "Glycemic control on 7-Jones"
+author: "Brian Gulbis, PharmD, BCPS"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyverse)
+library(readxl)
+library(mbohelpr)
+
+```
+
+```{r}
+f <- "U:/Data/stroke_ich/glucoses/raw/"
+
+raw_insulin <- read_excel(paste0(f, "glucose_control_7jones.xlsx"), sheet = "insulin_drips") |>
+    rename_all(str_to_lower)
+
+raw_glucose <- read_excel(paste0(f, "glucose_control_7jones.xlsx"), sheet = "glucoses") |>
+    rename_all(str_to_lower)
+
+df_pts <- distinct(raw_glucose, encntr_id)
+
+df_drip <- raw_insulin |> 
+    drip_runtime(vars(encntr_id)) |> 
+    summarize_drips(vars(encntr_id))
+
+df_drip_times <- df_drip |> 
+    select(encntr_id, start_datetime, stop_datetime)
+
+df_drip_pts <- df_drip |> 
+    distinct(encntr_id) |> 
+    mutate(drip = TRUE)
+
+df_glucose <- raw_glucose |> 
+    filter(!is.na(result_units)) |> 
+    mutate(
+        censor_high = str_detect(result_val, ">"),
+        censor_low = str_detect(result_val, "<"),
+        across(result_val, str_replace_all, pattern = ">|<", replacement = ""),
+        across(result_val, as.numeric)
+    )
+
+```
+
+Total number of patients included: `r format(nrow(df_pts), big.mark = ",")`
+
+### Insulin drips
+
+Number of patients receiving an insulin drip: `r nrow(df_drip_pts)`
+
+```{r}
+df_drip |> 
+    rename(runtime = infusion_run_time) |> 
+    summarize(
+        across(
+            c(duration, runtime), 
+            list(
+                mean = mean, 
+                sd = sd, 
+                median = median, 
+                q25 = ~quantile(., probs = 0.25, na.rm = TRUE), 
+                q75 = ~quantile(., probs = 0.75, na.rm = TRUE)
+            )
+        )
+    ) |> 
+    pivot_longer(everything()) |> 
+    separate(name, c("type", "measure"), sep = "_") |> 
+    pivot_wider(names_from = measure, values_from = value) |> 
+    mutate(
+        across(type, str_replace_all, pattern = "duration", replacement = "Total drip duration (hrs)"), 
+        across(type, str_replace_all, pattern = "runtime", replacement = "Actual time with drip running (hrs)"), 
+    ) |> 
+    knitr::kable(
+        caption = "Time on an insulin drip",
+        col.names = c(
+            "Measure",
+            "Mean",
+            "Std Dev",
+            "Median",
+            "25th",
+            "75th"
+        ),
+        digits = 2
+    )
+
+```
+
+```{r}
+data_drip_duration_pt <- df_drip |>
+    group_by(encntr_id) |>
+    summarize(across(c(duration, infusion_run_time), sum, na.rm = TRUE)) |>
+    mutate(drip = TRUE)
+```
+
+### Glycemic control
+
+```{r}
+
+df_gluc_drip_event <- df_glucose |> 
+    inner_join(df_drip_times, by = "encntr_id") |> 
+    filter(
+        lab_datetime >= start_datetime,
+        lab_datetime <= stop_datetime
+    ) |> 
+    distinct(event_id) |> 
+    mutate(drip = TRUE)
+
+df_gluc_nodrip_event <- df_glucose |> 
+    anti_join(df_gluc_drip_event, by = "event_id") |> 
+    distinct(event_id) |> 
+    mutate(drip = FALSE)
+
+df_gluc_event_type = bind_rows(df_gluc_drip_event, df_gluc_nodrip_event) 
+
+df_glucose_detail <- df_glucose |> 
+    left_join(df_gluc_event_type, by = "event_id") |> 
+    mutate(above_goal = result_val > 180)
+```
+
+```{r}
+df_glucose_detail |>
+    # group_by(encntr_id) |>
+    summarize(
+        across(
+            result_val, 
+            list(
+                mean = mean, 
+                sd = sd, 
+                median = median, 
+                q25 = ~quantile(., probs = 0.25, na.rm = TRUE), 
+                q75 = ~quantile(., probs = 0.75, na.rm = TRUE)
+            ), 
+        )
+    ) |> 
+    knitr::kable(
+        caption = "Aggregate glycemic control",
+        col.names = c(
+            "Mean",
+            "Std Dev",
+            "Median",
+            "25th",
+            "75th"
+        ),
+        digits = 2
+    )
+
+```
+
+```{r}
+df_glucose_detail |>
+    group_by(drip) |>
+    summarize(
+        n = n(),
+        across(
+            result_val, 
+            list(
+                mean = mean, 
+                sd = sd, 
+                median = median, 
+                q25 = ~quantile(., probs = 0.25, na.rm = TRUE), 
+                q75 = ~quantile(., probs = 0.75, na.rm = TRUE)
+            ), 
+        )
+    ) |> 
+    mutate(across(drip, ~if_else(., "On Drip", "Off Drip"))) |> 
+    knitr::kable(
+        caption = "Glycemic control with and without an insulin drip",
+        col.names = c(
+            "Insulin",
+            "Glucose Readings (n)",
+            "Mean",
+            "Std Dev",
+            "Median",
+            "25th",
+            "75th"
+        ),
+        digits = 2,
+        format.args = list(big.mark = ",")
+    )
+
+```
+
+```{r}
+
+data_glucose_pt <- df_glucose_detail |>
+    group_by(encntr_id) |>
+    summarize(
+        across(
+            result_val, 
+            list(
+                mean = mean, 
+                sd = sd, 
+                median = median, 
+                q25 = ~quantile(., probs = 0.25, na.rm = TRUE), 
+                q75 = ~quantile(., probs = 0.75, na.rm = TRUE)
+            ), 
+            .names = "glucose_{.fn}"
+        )
+    ) |>
+    left_join(data_drip_duration_pt, by = "encntr_id") |>
+    mutate(across(drip, ~coalesce(., FALSE)))
+
+# data_glucose_pt |> 
+#     ungroup() |> 
+#     summarize(
+#         mean = mean(glucose_mean, na.rm = TRUE),
+#         median = median(glucose_median, na.rm = TRUE)
+#     )
+```
+
+```{r}
+
+df_glucose_pcnt <- df_glucose_detail |> 
+    arrange(encntr_id, lab_datetime) |> 
+    group_by(encntr_id) |> 
+    mutate(
+        duration = difftime(lead(lab_datetime), lab_datetime, units = "hours"),
+        # start_time = difftime(lab_datetime, first(lab_datetime), units = "hours"),
+        across(duration, as.numeric),
+        across(duration, ~coalesce(., 1))
+    )
+
+df_gluc_duration <- df_glucose_pcnt |> 
+    group_by(encntr_id) |> 
+    summarize(across(duration, sum, na.rm = TRUE, .names = "total_duration")) 
+
+df_gluc_duration_high <- df_glucose_pcnt |> 
+    group_by(encntr_id, above_goal) |> 
+    summarize(across(duration, sum, na.rm = TRUE), .groups = "drop_last") |> 
+    inner_join(df_gluc_duration, by = "encntr_id") |> 
+    group_by(encntr_id) |> 
+    mutate(
+        pct_time = duration / total_duration * 100,
+        across(above_goal, ~if_else(., "pct_time_gt_180", "pct_time_lte_180"))
+    )
+```
+
+```{r}
+df_gluc_duration_high |> 
+    ungroup() |> 
+    select(-duration, -total_duration) |> 
+    pivot_wider(names_from = above_goal, values_from = pct_time) |> 
+    mutate(across(starts_with("pct_"), ~coalesce(., 0))) |> 
+    summarize(
+        across(
+            starts_with("pct_"), 
+            list(
+                mean = mean, 
+                sd = sd, 
+                median = median, 
+                q25 = ~quantile(., probs = 0.25, na.rm = TRUE), 
+                q75 = ~quantile(., probs = 0.75, na.rm = TRUE)
+            ), 
+            na.rm = TRUE
+        )
+    ) |> 
+    pivot_longer(everything()) |> 
+    mutate(
+        across(name, str_replace_all, pattern = "pct_time_lte_180", replacement = "lte180"),
+        across(name, str_replace_all, pattern = "pct_time_gt_180", replacement = "gt180"),
+    ) |> 
+    separate(name, c("type", "measure"), sep = "_") |> 
+    pivot_wider(names_from = measure, values_from = value) |> 
+    mutate(
+        across(type, str_replace_all, pattern = "lte180", replacement = "Time </= 180 mg/dL (%)"), 
+        across(type, str_replace_all, pattern = "gt180", replacement = "Time > 180 mg/dL (%)"), 
+    ) |> 
+    knitr::kable(
+        format = "latex",
+        booktabs = TRUE,
+        caption = "Amount of time (as percentage) below and above 180 mg/dL",
+        col.names = c(
+            "Measure",
+            "Mean",
+            "Std Dev",
+            "Median",
+            "25th",
+            "75th"
+        ),
+        digits = 2
+    ) |> 
+    kableExtra::add_footnote("Many patients spent 100% of the time in either one group or the other resulting in skewed mean and median values.", notation = "symbol")
+
+```
+
+```{r}
+df_gluc_duration_high |> 
+    ungroup() |> 
+    select(-duration, -total_duration) |> 
+    pivot_wider(names_from = above_goal, values_from = pct_time) |> 
+    filter(!is.na(pct_time_lte_180), !is.na(pct_time_gt_180)) |> 
+    # mutate(across(starts_with("pct_"), ~coalesce(., 0))) |> 
+    summarize(
+        across(
+            starts_with("pct_"), 
+            list(
+                mean = mean, 
+                sd = sd, 
+                median = median, 
+                q25 = ~quantile(., probs = 0.25, na.rm = TRUE), 
+                q75 = ~quantile(., probs = 0.75, na.rm = TRUE)
+            ), 
+            na.rm = TRUE
+        )
+    ) |> 
+    pivot_longer(everything()) |> 
+    mutate(
+        across(name, str_replace_all, pattern = "pct_time_lte_180", replacement = "lte180"),
+        across(name, str_replace_all, pattern = "pct_time_gt_180", replacement = "gt180"),
+    ) |> 
+    separate(name, c("type", "measure"), sep = "_") |> 
+    pivot_wider(names_from = measure, values_from = value) |> 
+    mutate(
+        across(type, str_replace_all, pattern = "lte180", replacement = "Time </= 180 mg/dL (%)"), 
+        across(type, str_replace_all, pattern = "gt180", replacement = "Time > 180 mg/dL (%)"), 
+    ) |> 
+    knitr::kable(
+        format = "latex",
+        booktabs = TRUE,
+        caption = "Amount of time (as percentage) below and above 180 mg/dL",
+        col.names = c(
+            "Measure",
+            "Mean",
+            "Std Dev",
+            "Median",
+            "25th",
+            "75th"
+        ),
+        digits = 2
+    ) |> 
+    kableExtra::add_footnote("Only includes patients who spent time in both groups", notation = "symbol")
+
+```
+
+```{r, eval=FALSE}
+
+data_gluc_count <- df_glucose_pcnt |> 
+    add_count(encntr_id, name = "pt_readings") |> 
+    group_by(encntr_id, pt_readings) |> 
+    summarize(across(above_goal, sum, na.rm = TRUE)) |> 
+    mutate(pct_readings_high = above_goal / pt_readings * 100)
+
+```
+
