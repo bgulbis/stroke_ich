@@ -54,6 +54,7 @@ SELECT DISTINCT
 	-- PATIENTS.ENCNTR_ID,
 	PATIENTS.FIN,
 	PATIENTS.LOS,	
+	TO_CHAR(pi_from_gmt(PATIENTS.REG_DT_TM, 'America/Chicago'), 'YYYY-MM-DD"T"HH24:MI:SS') AS ADMIT_DATETIME,
 	TRUNC((TRUNC(pi_from_gmt(PATIENTS.REG_DT_TM, 'America/Chicago')) - TRUNC(pi_from_gmt(PERSON.BIRTH_DT_TM, 'America/Chicago'))) / 365.25, 0) AS AGE,
 	pi_get_cv_display(PERSON.SEX_CD) AS SEX,
 	pi_get_cv_display(PERSON.RACE_CD) AS RACE,
