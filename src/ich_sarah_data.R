@@ -1,11 +1,14 @@
 library(tidyverse)
-library(readxl)
+# library(readxl)
 library(mbohelpr)
 
 # f <- "/Volumes/brgulbis/Data/stroke_ich/ich_sarah/"
 f <- "data/ich_sarah/"
 
-raw_pts <- read_excel(paste0(f, "raw/patient_list.xlsx")) |> 
+# raw_pts <- read_excel(paste0(f, "raw/patient_list.xlsx")) |> 
+#     rename_all(str_to_lower)
+
+raw_pts <- read_csv(paste0(f, "raw/patient_list.csv")) |> 
     rename_all(str_to_lower)
 
 df_include <- raw_pts |> 
@@ -17,5 +20,5 @@ df_include <- raw_pts |>
         min_sbp > 100
     )
 
-mbo_encntr <- concat_encounters(df_include$encntr_id, 950)
-print(mbo_encntr)
+mbo_fin <- concat_encounters(df_include$fin, 950)
+print(mbo_fin)
