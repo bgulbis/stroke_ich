@@ -287,6 +287,42 @@ df_sbp_120 <- df_sbp_72h |>
         sbp_120_duration = sum(duration, na.rm = TRUE)
     )
 
+df_sbp_chg <- df_sbp |> 
+    group_by(fin) |> 
+    arrange(fin, event_datetime, event) |> 
+    filter(event_datetime <= first(event_datetime) + hours(30)) |> 
+    mutate(
+        sbp_first = first(result_val),
+        sbp_chg = result_val - sbp_first,
+        sbp_chg_pct = sbp_chg / sbp_first,
+        event_time_hrs = difftime(event_datetime, first(event_datetime), units = "hours"),
+        across(event_time_hrs, as.numeric)
+    )
+
+df_sbp_chg_6h <- df_sbp_chg |> 
+    mutate(time_diff = abs(event_time_hrs - 6)) |> 
+    arrange(fin, time_diff) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_chg_6h = sbp_chg, sbp_pct_6h = sbp_chg_pct)
+
+df_sbp_chg_12h <- df_sbp_chg |> 
+    mutate(time_diff = abs(event_time_hrs - 12)) |> 
+    arrange(fin, time_diff) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_chg_12h = sbp_chg, sbp_pct_12h = sbp_chg_pct)
+
+df_sbp_chg_18h <- df_sbp_chg |> 
+    mutate(time_diff = abs(event_time_hrs - 18)) |> 
+    arrange(fin, time_diff) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_chg_18h = sbp_chg, sbp_pct_18h = sbp_chg_pct)
+
+df_sbp_chg_24h <- df_sbp_chg |> 
+    mutate(time_diff = abs(event_time_hrs - 24)) |> 
+    arrange(fin, time_diff) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_chg_24h = sbp_chg, sbp_pct_24h = sbp_chg_pct)
+
 # df_sbp_110_duration <- df_sbp_72h |> 
 #     group_by(fin) |> 
 #     mutate(
@@ -301,6 +337,25 @@ df_sbp_120 <- df_sbp_72h |>
 #     group_by(fin, sbp_110, sbp_chg_num) |> 
 #     summarize(across(duration, sum, na.rm = TRUE)) |> 
 #     filter(sbp_110)
+
+df_glucoses_num <- raw_glucoses |> 
+    count(fin, name = "glucoses_num")
+
+df_glucoses_low <- raw_glucoses |> 
+    mutate(
+        across(result_val, str_replace_all, pattern = ">|<", replacement = ""),
+        across(result_val, as.numeric)
+    ) |> 
+    filter(result_val < 60) |> 
+    count(fin, name = "glucoses_low_num")
+
+df_glucoses_high <- raw_glucoses |> 
+    mutate(
+        across(result_val, str_replace_all, pattern = ">|<", replacement = ""),
+        across(result_val, as.numeric)
+    ) |> 
+    filter(result_val > 180) |> 
+    count(fin, name = "glucoses_high_num")
 
 data_vasop <- raw_meds_vasop |> 
     arrange(fin, event_datetime, medication) |> 
@@ -333,10 +388,17 @@ data_patients <- raw_demog |>
     left_join(df_labs_24h, by = "fin") |> 
     left_join(df_labs_disch, by = "fin") |> 
     left_join(df_sbp_first, by = "fin") |> 
+    left_join(df_sbp_chg_6h, by = "fin") |> 
+    left_join(df_sbp_chg_12h, by = "fin") |> 
+    left_join(df_sbp_chg_18h, by = "fin") |> 
+    left_join(df_sbp_chg_24h, by = "fin") |> 
     left_join(df_bp_meds_24h, by = "fin") |> 
     left_join(df_sbp_90, by = "fin") |> 
     left_join(df_sbp_110, by = "fin") |> 
-    left_join(df_sbp_120, by = "fin")
+    left_join(df_sbp_120, by = "fin") |> 
+    left_join(df_glucoses_num, by = "fin") |> 
+    left_join(df_glucoses_low, by = "fin") |> 
+    left_join(df_glucoses_high, by = "fin")
 
 l <- list(
     "patients" = data_patients,
