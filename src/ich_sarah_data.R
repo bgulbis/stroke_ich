@@ -4,7 +4,8 @@ library(mbohelpr)
 library(lubridate)
 library(openxlsx)
 
-f <- "/Volumes/brgulbis/Data/stroke_ich/ich_sarah/"
+f <- "U:/Data/stroke_ich/ich_sarah/"
+# f <- "/Volumes/brgulbis/Data/stroke_ich/ich_sarah/"
 # f <- "data/ich_sarah/"
 
 tz <- locale(tz = "US/Central")
@@ -63,6 +64,9 @@ raw_surgeries <- read_csv(paste0(f, "raw/ich_surgeries.csv"), locale = tz) |>
     rename_all(str_to_lower)
 
 raw_icp <- read_csv(paste0(f, "raw/ich_icp.csv"), locale = tz) |> 
+    rename_all(str_to_lower)
+
+raw_readmits <- read_csv(paste0(f, "raw/ich_readmits.csv"), locale = tz) |> 
     rename_all(str_to_lower)
 
 df_diagnosis <- raw_diagnosis |> 
@@ -246,16 +250,16 @@ data_sbp_daily <- df_sbp |>
 df_sbp_72h <- df_sbp |> 
     arrange(fin, event_datetime, event) |> 
     filter(event_datetime <= admit_datetime + hours(72)) |> 
-    distinct(fin, event_datetime, .keep_all = TRUE)
-
-df_sbp_110 <- df_sbp_72h |> 
-    filter(result_val < 110) |> 
+    distinct(fin, event_datetime, .keep_all = TRUE) |> 
     group_by(fin) |> 
     mutate(
         duration = difftime(lead(event_datetime), event_datetime, units = "hours"),
         across(duration, as.numeric),
         across(duration, ~coalesce(., 1))
-    ) |> 
+    ) 
+
+df_sbp_110 <- df_sbp_72h |> 
+    filter(result_val < 110) |> 
     summarize(
         sbp_110_num = n(),
         sbp_110_duration = sum(duration, na.rm = TRUE)
@@ -263,12 +267,6 @@ df_sbp_110 <- df_sbp_72h |>
 
 df_sbp_90 <- df_sbp_72h |> 
     filter(result_val < 90) |> 
-    group_by(fin) |> 
-    mutate(
-        duration = difftime(lead(event_datetime), event_datetime, units = "hours"),
-        across(duration, as.numeric),
-        across(duration, ~coalesce(., 1))
-    ) |> 
     summarize(
         sbp_90_num = n(),
         sbp_90_duration = sum(duration, na.rm = TRUE)
@@ -276,12 +274,6 @@ df_sbp_90 <- df_sbp_72h |>
 
 df_sbp_120 <- df_sbp_72h |> 
     filter(result_val < 120) |> 
-    group_by(fin) |> 
-    mutate(
-        duration = difftime(lead(event_datetime), event_datetime, units = "hours"),
-        across(duration, as.numeric),
-        across(duration, ~coalesce(., 1))
-    ) |> 
     summarize(
         sbp_120_num = n(),
         sbp_120_duration = sum(duration, na.rm = TRUE)
@@ -357,6 +349,53 @@ df_glucoses_high <- raw_glucoses |>
     filter(result_val > 180) |> 
     count(fin, name = "glucoses_high_num")
 
+df_gluc_durations <- raw_glucoses |> 
+    group_by(fin) |> 
+    arrange(fin, event_datetime) |> 
+    mutate(
+        across(result_val, str_replace_all, pattern = ">|<", replacement = ""),
+        across(result_val, as.numeric),
+        duration = difftime(lead(event_datetime), event_datetime, units = "hours"),
+        across(duration, as.numeric),
+        across(duration, ~coalesce(., 1))
+    )
+
+df_gluc_time <- df_gluc_durations |> 
+    summarize(across(duration, sum, na.rm = TRUE))
+
+df_gluc_60 <- df_gluc_durations |> 
+    filter(result_val < 60) |> 
+    summarize(across(duration, sum, na.rm = TRUE)) |> 
+    rename(glucoses_low_hrs = duration) |> 
+    left_join(df_gluc_time, by = "fin") |> 
+    mutate(glucoses_low_pct_time = glucoses_low_hrs / duration * 100) |> 
+    select(-duration)
+
+df_gluc_180 <- df_gluc_durations |> 
+    filter(result_val > 180) |> 
+    summarize(across(duration, sum, na.rm = TRUE)) |> 
+    rename(glucoses_high_hrs = duration) |> 
+    left_join(df_gluc_time, by = "fin") |> 
+    mutate(glucoses_high_pct_time = glucoses_high_hrs / duration * 100) |> 
+    select(-duration)
+
+df_gluc_median <- raw_glucoses |> 
+    inner_join(raw_demog[c("fin", "admit_datetime")], by = "fin") |> 
+    mutate(
+        across(result_val, str_replace_all, pattern = ">|<", replacement = ""),
+        across(result_val, as.numeric),
+        across(event, ~"glucose"),
+        hosp_day = difftime(event_datetime, admit_datetime, units = "days"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor),
+        across(hosp_day, ~if_else(. < 0, 0, .))
+    ) |> 
+    rename(result = result_val) |> 
+    calc_runtime(vars(fin, hosp_day)) |> 
+    summarize_data(vars(fin, hosp_day)) |> 
+    select(fin, hosp_day, median_result) |> 
+    pivot_wider(names_from = hosp_day, names_prefix = "median_glucose_day_", values_from = median_result)
+
 data_vasop <- raw_meds_vasop |> 
     arrange(fin, event_datetime, medication) |> 
     rename(
@@ -380,6 +419,10 @@ df_icp <- raw_icp |>
 data_codes <- raw_codes |> 
     select(fin, code_datetime = result_datetime)
 
+df_readmits <- raw_readmits |> 
+    arrange(fin, readmit_datetime) |> 
+    distinct(fin, .keep_all = TRUE)
+
 data_patients <- raw_demog |> 
     left_join(df_diagnosis, by = "fin") |> 
     left_join(df_home_meds, by = "fin") |> 
@@ -388,6 +431,11 @@ data_patients <- raw_demog |>
     left_join(df_labs_24h, by = "fin") |> 
     left_join(df_labs_disch, by = "fin") |> 
     left_join(df_sbp_first, by = "fin") |> 
+    mutate(
+        sbp_first_220 = sbp_arrive >= 220,
+        sbp_first_150_219 = sbp_arrive >= 150 & sbp_arrive < 220,
+        sbp_first_lt_150 = sbp_arrive < 150
+    ) |> 
     left_join(df_sbp_chg_6h, by = "fin") |> 
     left_join(df_sbp_chg_12h, by = "fin") |> 
     left_join(df_sbp_chg_18h, by = "fin") |> 
@@ -396,9 +444,13 @@ data_patients <- raw_demog |>
     left_join(df_sbp_90, by = "fin") |> 
     left_join(df_sbp_110, by = "fin") |> 
     left_join(df_sbp_120, by = "fin") |> 
-    left_join(df_glucoses_num, by = "fin") |> 
+    # left_join(df_glucoses_num, by = "fin") |> 
     left_join(df_glucoses_low, by = "fin") |> 
-    left_join(df_glucoses_high, by = "fin")
+    left_join(df_gluc_60, by = "fin") |> 
+    left_join(df_glucoses_high, by = "fin") |> 
+    left_join(df_gluc_180, by = "fin") |> 
+    left_join(df_gluc_median, by = "fin") |> 
+    left_join(df_readmits, by = "fin")
 
 l <- list(
     "patients" = data_patients,
