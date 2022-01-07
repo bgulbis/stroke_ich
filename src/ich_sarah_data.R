@@ -4,9 +4,7 @@ library(mbohelpr)
 library(lubridate)
 library(openxlsx)
 
-f <- "U:/Data/stroke_ich/ich_sarah/"
-# f <- "/Volumes/brgulbis/Data/stroke_ich/ich_sarah/"
-# f <- "data/ich_sarah/"
+f <- set_data_path("stroke_ich", "ich_sarah")
 
 tz <- locale(tz = "US/Central")
 
@@ -14,7 +12,11 @@ tz <- locale(tz = "US/Central")
 #     rename_all(str_to_lower)
 
 raw_pts <- read_csv(paste0(f, "raw/patient_list.csv")) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(
+        across(contains("datetime"), ymd_hms, tz = "US/Central"),
+        across(first_arrive_datetime, ~coalesce(., tmc_arrive_datetime))
+    )
 
 df_include <- raw_pts |> 
     filter(
@@ -230,10 +232,10 @@ df_bp_meds_24h <- data_bp_meds |>
 
 # y <- distinct(raw_meds_bp, admin_route)
 
-df_sbp_first <- raw_sbp |> 
-    arrange(fin, event_datetime, event_id) |> 
-    distinct(fin, .keep_all = TRUE) |> 
-    select(fin, sbp_arrive = result_val)
+# df_sbp_first <- raw_sbp |> 
+#     arrange(fin, event_datetime, event_id) |> 
+#     distinct(fin, .keep_all = TRUE) |> 
+#     select(fin, sbp_arrive = result_val)
 
 df_sbp <- raw_sbp |> 
     inner_join(raw_demog[c("fin", "admit_datetime")], by = "fin")
@@ -390,21 +392,17 @@ df_gluc_median <- raw_glucoses |>
         across(hosp_day, floor),
         across(hosp_day, ~if_else(. < 0, 0, .))
     ) |> 
-    rename(result = result_val) |> 
-    calc_runtime(vars(fin, hosp_day)) |> 
-    summarize_data(vars(fin, hosp_day)) |> 
+    calc_runtime(hosp_day, .id = fin) |> 
+    summarize_data(hosp_day, .id = fin, .result = result_val) |> 
     select(fin, hosp_day, median_result) |> 
     pivot_wider(names_from = hosp_day, names_prefix = "median_glucose_day_", values_from = median_result)
 
 data_vasop <- raw_meds_vasop |> 
     arrange(fin, event_datetime, medication) |> 
-    rename(
-        med_datetime = event_datetime,
-        rate = infusion_rate,
-        rate_unit = infusion_unit
-    ) |> 
-    drip_runtime(vars(fin)) |> 
-    summarize_drips(vars(fin)) |> 
+    filter(!is.na(iv_event)) |> 
+    drip_runtime(.id = fin, .dt_tm = event_datetime, .rate = infusion_rate, .rate_unit = infusion_unit) |> 
+    filter(!is.na(infusion_rate)) |> 
+    summarize_drips(.id = fin, .rate = infusion_rate) |> 
     select(fin, medication, start_datetime, duration)
 
 y <- distinct(raw_surgeries, surgery)
@@ -423,7 +421,14 @@ df_readmits <- raw_readmits |>
     arrange(fin, readmit_datetime) |> 
     distinct(fin, .keep_all = TRUE)
 
+df_arrive <- raw_pts |> 
+    select(fin, tmc_arrive_datetime, tfr_arrive_datetime, first_arrive_datetime)
+
+df_sbp_first <- raw_pts |> 
+    select(fin, sbp_first_datetime, sbp_first)
+
 data_patients <- raw_demog |> 
+    left_join(df_arrive, by = "fin") |> 
     left_join(df_diagnosis, by = "fin") |> 
     left_join(df_home_meds, by = "fin") |> 
     left_join(df_dc_meds, by = "fin") |> 
@@ -432,9 +437,9 @@ data_patients <- raw_demog |>
     left_join(df_labs_disch, by = "fin") |> 
     left_join(df_sbp_first, by = "fin") |> 
     mutate(
-        sbp_first_220 = sbp_arrive >= 220,
-        sbp_first_150_219 = sbp_arrive >= 150 & sbp_arrive < 220,
-        sbp_first_lt_150 = sbp_arrive < 150
+        sbp_first_220 = sbp_first >= 220,
+        sbp_first_150_219 = sbp_first >= 150 & sbp_first < 220,
+        sbp_first_lt_150 = sbp_first < 150
     ) |> 
     left_join(df_sbp_chg_6h, by = "fin") |> 
     left_join(df_sbp_chg_12h, by = "fin") |> 
