@@ -40,7 +40,8 @@ raw_pts <- read_csv(paste0(f, "raw/patients.csv")) |>
 df_include <- raw_pts |>
     group_by(encntr_id) |>
     mutate(exclude = sum(excl_pregnant, excl_transfer, excl_early_death, na.rm = TRUE)) |>
-    filter(exclude == 0, first_sbp < 150) |> 
+    filter(exclude == 0, first_sbp >= 150) |> 
+    ungroup() |> 
     select(fin, encntr_id, admit_datetime, start_datetime)
 
 mbo_fin <- concat_encounters(df_include$fin, 950)
