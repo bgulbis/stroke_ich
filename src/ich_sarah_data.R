@@ -1,5 +1,5 @@
 library(tidyverse)
-# library(readxl)
+library(readxl)
 library(mbohelpr)
 library(lubridate)
 library(openxlsx)
@@ -8,30 +8,56 @@ f <- set_data_path("stroke_ich", "ich_sarah")
 
 tz <- locale(tz = "US/Central")
 
-# raw_pts <- read_excel(paste0(f, "raw/patient_list.xlsx")) |> 
-#     rename_all(str_to_lower)
+# extra_fins <- read_excel(paste0(f, "raw/extra_fins.xlsx"))
+#     mutate(across(fin, as.character))
+# 
+# mbo_extras <- concat_encounters(extra_fins$fin)
+# print(mbo_extras)
 
-raw_pts <- read_csv(paste0(f, "raw/patient_list.csv")) |> 
-    rename_all(str_to_lower) |> 
+raw_pts <- read_excel(paste0(f, "raw/patient_list.xlsx")) |>
+    rename_all(str_to_lower) |>
     mutate(
-        across(contains("datetime"), ymd_hms, tz = "US/Central"),
-        across(first_arrive_datetime, ~coalesce(., tmc_arrive_datetime))
+        across(fin, as.numeric),
+        # across(c(admit_src, disch_disposition), str_to_lower),
+        across(starts_with("excl_"), as.logical)
     )
 
-df_include <- raw_pts |> 
-    filter(
-        (is.na(pregnant) | pregnant != "Positive"),
-        ((str_detect(admit_src, regex("tfr|transfer", ignore_case = TRUE)) & !is.na(tfr_facility)) |
-             !str_detect(admit_src, regex("tfr|transfer", ignore_case = TRUE))),
-        (!(los < 2 & str_detect(disch_disposition, "Donor|Deceased"))),
-        min_sbp > 100
-    )
+
+# raw_pts <- read_csv(paste0(f, "raw/patient_list.csv")) |>
+#     rename_all(str_to_lower) |>
+#     mutate(
+#         across(contains("datetime"), ymd_hms, tz = "US/Central"),
+#         across(first_arrive_datetime, ~coalesce(., tmc_arrive_datetime))
+#     )
+
+# x <- semi_join(data_patients, extra_fins, by = "fin")
+# y <- semi_join(raw_pts2, extra_fins, by = "fin")
+
+
+# x <- filter(raw_pts, first_sbp < 150)
+
+df_include <- raw_pts |>
+    group_by(encntr_id) |>
+    mutate(exclude = sum(excl_pregnant, excl_transfer, excl_early_death, na.rm = TRUE)) |>
+    filter(exclude == 0, first_sbp < 150)
+
+# df_include <- raw_pts |> 
+#     filter(
+#         (is.na(pregnant) | pregnant != "Positive"),
+#         ((str_detect(admit_src, regex("tfr|transfer", ignore_case = TRUE)) & !is.na(tfr_facility)) |
+#              !str_detect(admit_src, regex("tfr|transfer", ignore_case = TRUE))),
+#         (!(los < 2 & str_detect(disch_disposition, "Donor|Deceased"))),
+#         min_sbp > 100
+#     )
 
 mbo_fin <- concat_encounters(df_include$fin, 950)
 print(mbo_fin)
 
+
+# raw data ----------------------------------------------------------------
+
 raw_demog <- read_csv(paste0(f, "raw/ich_demog.csv"), locale = tz) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) 
 
 raw_codes <- read_csv(paste0(f, "raw/ich_codes.csv"), locale = tz) |> 
     rename_all(str_to_lower)
@@ -60,7 +86,8 @@ raw_outpt_meds <- read_csv(paste0(f, "raw/ich_outpt_meds.csv")) |>
     rename_all(str_to_lower)
 
 raw_sbp <- read_csv(paste0(f, "raw/ich_sbp.csv"), locale = tz) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    arrange(fin, event_datetime, event_id)
 
 raw_surgeries <- read_csv(paste0(f, "raw/ich_surgeries.csv"), locale = tz) |> 
     rename_all(str_to_lower)
@@ -424,8 +451,13 @@ df_readmits <- raw_readmits |>
 df_arrive <- raw_pts |> 
     select(fin, tmc_arrive_datetime, tfr_arrive_datetime, first_arrive_datetime)
 
-df_sbp_first <- raw_pts |> 
-    select(fin, sbp_first_datetime, sbp_first)
+# df_sbp_first <- raw_pts |> 
+#     select(fin, sbp_first_datetime, sbp_first)
+
+df_sbp_first <- raw_sbp |> 
+    arrange(fin, event_datetime, event_id) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_first_datetime = event_datetime, sbp_first = result_val)
 
 data_patients <- raw_demog |> 
     left_join(df_arrive, by = "fin") |> 
