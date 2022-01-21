@@ -27,17 +27,15 @@ rehabs <- c("TR TIRR", "GH Rehab", "HH Rehab", "HH Trans Care", "KR Katy Rehab",
 raw_pts <- read_csv(paste0(f, "raw/patients.csv")) |>
     rename_all(str_to_lower) |> 
     group_by(encntr_id) |> 
-    mutate(start_datetime = if_else(tfr_facility %in% rehabs, arrive_datetime - hours(12), min(arrive_datetime, tfr_arrive_datetime, na.rm = TRUE), arrive_datetime))
-#     mutate(
-#         across(contains("datetime"), ymd_hms, tz = "US/Central"),
-#         across(first_arrive_datetime, ~coalesce(., tmc_arrive_datetime))
-#     )
-
-# x <- semi_join(data_patients, extra_fins, by = "fin")
-# y <- semi_join(raw_pts2, extra_fins, by = "fin")
-
-
-# x <- filter(raw_pts, first_sbp < 150)
+    mutate(
+        across(fin, as.character),
+        start_datetime = if_else(
+            tfr_facility %in% rehabs, 
+            arrive_datetime - hours(12),
+            min(arrive_datetime, tfr_arrive_datetime, na.rm = TRUE), 
+            arrive_datetime
+        )
+    )
 
 df_include <- raw_pts |>
     group_by(encntr_id) |>
@@ -45,62 +43,62 @@ df_include <- raw_pts |>
     filter(exclude == 0, first_sbp < 150) |> 
     select(fin, encntr_id, admit_datetime, start_datetime)
 
-# df_include <- raw_pts |> 
-#     filter(
-#         (is.na(pregnant) | pregnant != "Positive"),
-#         ((str_detect(admit_src, regex("tfr|transfer", ignore_case = TRUE)) & !is.na(tfr_facility)) |
-#              !str_detect(admit_src, regex("tfr|transfer", ignore_case = TRUE))),
-#         (!(los < 2 & str_detect(disch_disposition, "Donor|Deceased"))),
-#         min_sbp > 100
-#     )
-
 mbo_fin <- concat_encounters(df_include$fin, 950)
 print(mbo_fin)
 
 
 # raw data ----------------------------------------------------------------
 
-# raw_demog <- read_csv(paste0(f, "raw/demog.csv"), locale = tz) |> 
-#     rename_all(str_to_lower) 
-
 raw_codes <- read_csv(paste0(f, "raw/codes.csv"), locale = tz) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 raw_diagnosis <- read_csv(paste0(f, "raw/diagnosis.csv")) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 raw_glucoses <- read_csv(paste0(f, "raw/glucoses.csv"), locale = tz) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 raw_labs <- read_csv(paste0(f, "raw/labs.csv")) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 raw_locations <- read_csv(paste0(f, "raw/locations.csv")) |> 
     rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character)) |> 
     arrange(fin, unit_count)
 
 raw_meds_bp <- read_csv(paste0(f, "raw/meds_bp.csv"), locale = tz) |> 
     rename_all(str_to_lower) |> 
-    mutate(across(medication, str_to_lower))
+    mutate(across(medication, str_to_lower)) |> 
+    mutate(across(fin, as.character))
 
 raw_meds_vasop <- read_csv(paste0(f, "raw/meds_vasop.csv"), locale = tz) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 raw_outpt_meds <- read_csv(paste0(f, "raw/outpt_meds.csv")) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 raw_sbp <- read_csv(paste0(f, "raw/sbp.csv"), locale = tz) |> 
     rename_all(str_to_lower) |> 
-    arrange(fin, event_datetime, event_id)
+    arrange(fin, event_datetime, event_id) |> 
+    mutate(across(fin, as.character))
 
 raw_surgeries <- read_csv(paste0(f, "raw/surgeries.csv"), locale = tz) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 raw_icp <- read_csv(paste0(f, "raw/icp.csv"), locale = tz) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 raw_readmits <- read_csv(paste0(f, "raw/readmits.csv"), locale = tz) |> 
-    rename_all(str_to_lower)
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character))
 
 df_diagnosis <- raw_diagnosis |> 
     mutate(
@@ -168,12 +166,12 @@ df_home_statin_meds <- raw_outpt_meds |>
 
 data_home_meds <- df_home_bp_meds |> 
     bind_rows(df_home_anticoag_meds, df_home_antiplt_meds, df_home_statin_meds) |> 
-    arrange(fin, med_cat, medication)
+    arrange(fin, med_cat, medication) 
 
 df_home_meds <- data_home_meds |> 
     distinct(fin, med_cat) |> 
     mutate(med = TRUE) |> 
-    pivot_wider(names_from = med_cat, values_from = med, names_prefix = "home_")
+    pivot_wider(names_from = med_cat, values_from = med, names_prefix = "home_") 
 
 df_dc_bp_meds <- raw_outpt_meds |> 
     filter(
@@ -213,12 +211,12 @@ df_dc_statin_meds <- raw_outpt_meds |>
 
 data_dc_meds <- df_dc_bp_meds |> 
     bind_rows(df_dc_anticoag_meds, df_dc_antiplt_meds, df_dc_statin_meds) |> 
-    arrange(fin, med_cat, medication)
+    arrange(fin, med_cat, medication) 
 
 df_dc_meds <- data_dc_meds |> 
     distinct(fin, med_cat) |> 
     mutate(med = TRUE) |> 
-    pivot_wider(names_from = med_cat, values_from = med, names_prefix = "dc_")
+    pivot_wider(names_from = med_cat, values_from = med, names_prefix = "dc_") 
 
 df_labs_admit <- raw_labs |> 
     filter(lab_timing == "ADMIT") |> 
@@ -253,14 +251,14 @@ data_bp_meds <- raw_meds_bp |>
         )
     ) |> 
     distinct(fin, medication, route) |> 
-    arrange(fin, medication)
+    arrange(fin, medication) 
 
 df_bp_meds_24h <- data_bp_meds |> 
     mutate(med_grp = if_else(route == "po", "oral_antihtn", medication)) |> 
     distinct(fin, med_grp) |> 
     mutate(dose = TRUE) |> 
     filter(!med_grp %in% c("furosemide", "metoprolol", "clonidine", "diltiazem", "bumetanide", "verapamil")) |> 
-    pivot_wider(names_from = med_grp, values_from = dose, names_prefix = "first_24h_meds_")
+    pivot_wider(names_from = med_grp, values_from = dose, names_prefix = "first_24h_meds_") 
 
 # y <- distinct(raw_meds_bp, admin_route)
 
@@ -281,7 +279,7 @@ data_sbp_daily <- df_sbp |>
     group_by(fin, hosp_day) |> 
     summarize(across(result_val, list(min = min, median = median), na.rm = TRUE, .names = "sbp_{.fn}"), .groups = "drop") |> 
     filter(hosp_day >= -1) |> 
-    arrange(fin, hosp_day)
+    arrange(fin, hosp_day) 
 
 df_sbp_72h <- df_sbp |> 
     arrange(fin, event_datetime, event) |> 
@@ -444,25 +442,29 @@ data_vasop <- raw_meds_vasop |>
     filter(!is.na(infusion_rate)) |> 
     summarize_drips(.id = fin, .rate = infusion_rate) |> 
     select(fin, medication, start_datetime, duration) |> 
-    arrange(fin, start_datetime)
+    arrange(fin, start_datetime) 
 
 # y <- distinct(raw_surgeries, surgery)
 
 data_surgeries <- raw_surgeries |> 
     filter(str_detect(surgery, "Crani|Shunt")) |> 
     select(fin, surgery_start_datetime, surgery) |> 
-    arrange(fin, surgery_start_datetime)
+    arrange(fin, surgery_start_datetime) 
 
 df_icp <- raw_icp |> 
     inner_join(df_include, by = "fin")
 
 data_codes <- raw_codes |> 
     select(fin, code_datetime = result_datetime) |> 
-    arrange(fin, code_datetime)
+    arrange(fin, code_datetime) 
 
 df_readmits <- raw_readmits |> 
     arrange(fin, readmit_datetime) |> 
     distinct(fin, .keep_all = TRUE)
+
+data_locations <- raw_locations |> 
+    semi_join(df_include, by = "fin") |> 
+    arrange(fin, unit_count) 
 
 # df_arrive <- raw_pts |> 
 #     select(fin, tmc_arrive_datetime, tfr_arrive_datetime, first_arrive_datetime)
@@ -505,7 +507,9 @@ data_patients <- raw_pts |>
     left_join(df_gluc_180, by = "fin") |> 
     left_join(df_gluc_median, by = "fin") |> 
     left_join(df_readmits, by = "fin") |> 
-    arrange(fin)
+    arrange(fin) |> 
+    ungroup() |> 
+    select(-encntr_id, -tfr_encntr_id)
 
 l <- list(
     "patients" = data_patients,
@@ -516,7 +520,7 @@ l <- list(
     "codes" = data_codes,
     "surgeries" = data_surgeries,
     "vasopressors" = data_vasop,
-    "nurse_units" = raw_locations
+    "nurse_units" = data_locations
 )
 
 write.xlsx(l, paste0(f, "final/ich_data.xlsx"), overwrite = TRUE)
