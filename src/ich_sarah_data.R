@@ -101,6 +101,18 @@ raw_readmits <- read_csv(paste0(f, "raw/readmits.csv"), locale = tz) |>
     rename_all(str_to_lower) |> 
     mutate(across(fin, as.character))
 
+raw_imaging <- read_csv(paste0(f, "raw/imaging.csv"), locale = tz) |> 
+    rename_all(str_to_lower) |> 
+    mutate(across(fin, as.character)) |> 
+    arrange(fin, event_datetime)
+
+df_imaging <- raw_imaging |> 
+    inner_join(df_include, by = "fin") |> 
+    filter(event_datetime > start_datetime) |> 
+    mutate(event_hour = floor_date(event_datetime, unit = "hours")) |> 
+    distinct(fin, event_hour, .keep_all = TRUE) |> 
+    count(fin, name = "num_imaging")
+    
 df_diagnosis <- raw_diagnosis |> 
     mutate(
         icd_code = str_sub(icd_10_code, end = 3L),
@@ -482,6 +494,7 @@ data_patients <- raw_pts |>
     select(-starts_with("excl")) |> 
     # left_join(df_arrive, by = "fin") |> 
     semi_join(df_include, by = "fin") |> 
+    left_join(df_imaging, by = "fin") |> 
     left_join(df_diagnosis, by = "fin") |> 
     left_join(df_home_meds, by = "fin") |> 
     left_join(df_dc_meds, by = "fin") |> 
