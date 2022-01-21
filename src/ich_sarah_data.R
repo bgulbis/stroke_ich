@@ -14,17 +14,19 @@ tz <- locale(tz = "US/Central")
 # mbo_extras <- concat_encounters(extra_fins$fin)
 # print(mbo_extras)
 
-raw_pts <- read_excel(paste0(f, "raw/patient_list.xlsx")) |>
-    rename_all(str_to_lower) |>
-    mutate(
-        across(fin, as.numeric),
-        # across(c(admit_src, disch_disposition), str_to_lower),
-        across(starts_with("excl_"), as.logical)
-    )
-
-
-# raw_pts <- read_csv(paste0(f, "raw/patient_list.csv")) |>
+# raw_pts <- read_excel(paste0(f, "raw/patient_list.xlsx")) |>
 #     rename_all(str_to_lower) |>
+#     mutate(
+#         across(fin, as.numeric),
+#         # across(c(admit_src, disch_disposition), str_to_lower),
+#         across(starts_with("excl_"), as.logical)
+#     )
+
+
+raw_pts <- read_csv(paste0(f, "raw/patient_list.csv")) |>
+    rename_all(str_to_lower) |> 
+    group_by(encntr_id) |> 
+    mutate(first_arrive_datetime = min(arrive_datetime, tfr_arrive_datetime))
 #     mutate(
 #         across(contains("datetime"), ymd_hms, tz = "US/Central"),
 #         across(first_arrive_datetime, ~coalesce(., tmc_arrive_datetime))
