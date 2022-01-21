@@ -479,6 +479,7 @@ data_locations <- raw_locations |>
 #     select(fin, sbp_first_datetime = event_datetime, sbp_first = result_val)
 
 data_patients <- raw_pts |> 
+    select(-starts_with("excl")) |> 
     # left_join(df_arrive, by = "fin") |> 
     semi_join(df_include, by = "fin") |> 
     left_join(df_diagnosis, by = "fin") |> 
