@@ -1,5 +1,5 @@
 library(tidyverse)
-library(readxl)
+# library(readxl)
 library(mbohelpr)
 library(lubridate)
 library(openxlsx)
@@ -23,7 +23,7 @@ tz <- locale(tz = "US/Central")
 #     )
 
 
-raw_pts <- read_csv(paste0(f, "raw/patient_list.csv")) |>
+raw_pts <- read_csv(paste0(f, "raw/patients.csv")) |>
     rename_all(str_to_lower) |> 
     group_by(encntr_id) |> 
     mutate(first_arrive_datetime = min(arrive_datetime, tfr_arrive_datetime))
@@ -41,7 +41,8 @@ raw_pts <- read_csv(paste0(f, "raw/patient_list.csv")) |>
 df_include <- raw_pts |>
     group_by(encntr_id) |>
     mutate(exclude = sum(excl_pregnant, excl_transfer, excl_early_death, na.rm = TRUE)) |>
-    filter(exclude == 0, first_sbp < 150)
+    filter(exclude == 0, first_sbp < 150) |> 
+    select(fin, encntr_id, first_arrive_datetime)
 
 # df_include <- raw_pts |> 
 #     filter(
@@ -58,46 +59,46 @@ print(mbo_fin)
 
 # raw data ----------------------------------------------------------------
 
-raw_demog <- read_csv(paste0(f, "raw/ich_demog.csv"), locale = tz) |> 
+raw_demog <- read_csv(paste0(f, "raw/demog.csv"), locale = tz) |> 
     rename_all(str_to_lower) 
 
-raw_codes <- read_csv(paste0(f, "raw/ich_codes.csv"), locale = tz) |> 
+raw_codes <- read_csv(paste0(f, "raw/codes.csv"), locale = tz) |> 
     rename_all(str_to_lower)
 
-raw_diagnosis <- read_csv(paste0(f, "raw/ich_diagnosis.csv")) |> 
+raw_diagnosis <- read_csv(paste0(f, "raw/diagnosis.csv")) |> 
     rename_all(str_to_lower)
 
-raw_glucoses <- read_csv(paste0(f, "raw/ich_glucoses.csv"), locale = tz) |> 
+raw_glucoses <- read_csv(paste0(f, "raw/glucoses.csv"), locale = tz) |> 
     rename_all(str_to_lower)
 
-raw_labs <- read_csv(paste0(f, "raw/ich_labs.csv")) |> 
+raw_labs <- read_csv(paste0(f, "raw/labs.csv")) |> 
     rename_all(str_to_lower)
 
-raw_locations <- read_csv(paste0(f, "raw/ich_locations.csv")) |> 
+raw_locations <- read_csv(paste0(f, "raw/locations.csv")) |> 
     rename_all(str_to_lower) |> 
     arrange(fin, unit_count)
 
-raw_meds_bp <- read_csv(paste0(f, "raw/ich_meds_bp.csv"), locale = tz) |> 
+raw_meds_bp <- read_csv(paste0(f, "raw/meds_bp.csv"), locale = tz) |> 
     rename_all(str_to_lower) |> 
     mutate(across(medication, str_to_lower))
 
-raw_meds_vasop <- read_csv(paste0(f, "raw/ich_meds_vasop.csv"), locale = tz) |> 
+raw_meds_vasop <- read_csv(paste0(f, "raw/meds_vasop.csv"), locale = tz) |> 
     rename_all(str_to_lower)
 
-raw_outpt_meds <- read_csv(paste0(f, "raw/ich_outpt_meds.csv")) |> 
+raw_outpt_meds <- read_csv(paste0(f, "raw/outpt_meds.csv")) |> 
     rename_all(str_to_lower)
 
-raw_sbp <- read_csv(paste0(f, "raw/ich_sbp.csv"), locale = tz) |> 
+raw_sbp <- read_csv(paste0(f, "raw/sbp.csv"), locale = tz) |> 
     rename_all(str_to_lower) |> 
     arrange(fin, event_datetime, event_id)
 
-raw_surgeries <- read_csv(paste0(f, "raw/ich_surgeries.csv"), locale = tz) |> 
+raw_surgeries <- read_csv(paste0(f, "raw/surgeries.csv"), locale = tz) |> 
     rename_all(str_to_lower)
 
-raw_icp <- read_csv(paste0(f, "raw/ich_icp.csv"), locale = tz) |> 
+raw_icp <- read_csv(paste0(f, "raw/icp.csv"), locale = tz) |> 
     rename_all(str_to_lower)
 
-raw_readmits <- read_csv(paste0(f, "raw/ich_readmits.csv"), locale = tz) |> 
+raw_readmits <- read_csv(paste0(f, "raw/readmits.csv"), locale = tz) |> 
     rename_all(str_to_lower)
 
 df_diagnosis <- raw_diagnosis |> 
