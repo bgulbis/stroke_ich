@@ -1,5 +1,5 @@
 library(tidyverse)
-# library(readxl)
+library(readxl)
 library(mbohelpr)
 library(lubridate)
 library(openxlsx)
@@ -8,11 +8,11 @@ f <- set_data_path("stroke_ich", "ich_sarah")
 
 tz <- locale(tz = "US/Central")
 
-# extra_fins <- read_excel(paste0(f, "raw/extra_fins.xlsx"))
-#     mutate(across(fin, as.character))
-# 
-# mbo_extras <- concat_encounters(extra_fins$fin)
-# print(mbo_extras)
+extra_fins <- read_excel(paste0(f, "raw/extra_fins.xlsx"))
+    # mutate(across(fin, as.character))
+
+mbo_extras <- concat_encounters(extra_fins$fin)
+print(mbo_extras)
 
 # raw_pts <- read_excel(paste0(f, "raw/patient_list.xlsx")) |>
 #     rename_all(str_to_lower) |>
@@ -539,3 +539,86 @@ l <- list(
 )
 
 write.xlsx(l, paste0(f, "final/ich_data.xlsx"), overwrite = TRUE)
+
+
+# extra patients ----------------------------------------------------------
+
+extra_pts <- read_csv(paste0(f, "raw/patients_extras.csv")) |>
+    rename_all(str_to_lower) |> 
+    group_by(encntr_id) |> 
+    mutate(
+        across(fin, as.character),
+        start_datetime = if_else(
+            tfr_facility %in% rehabs, 
+            arrive_datetime - hours(12),
+            min(arrive_datetime, tfr_arrive_datetime, na.rm = TRUE), 
+            arrive_datetime
+        )
+    )
+
+# x <- semi_join(raw_pts, extras_pts, by = "fin")
+
+extra_include <- extra_pts |>
+    group_by(encntr_id) |>
+    mutate(exclude = sum(excl_pregnant, excl_transfer, excl_early_death, na.rm = TRUE)) |>
+    # filter(exclude == 0, first_sbp >= 150) |> 
+    ungroup() |> 
+    select(fin, encntr_id, admit_datetime, start_datetime)
+
+# y <- semi_join(raw_pts, extras_include, by = "fin")
+
+extra_sbp <- read_csv(paste0(f, "raw/sbp_extras.csv"), locale = tz) |> 
+    rename_all(str_to_lower) |> 
+    arrange(fin, event_datetime, event_id) |> 
+    mutate(across(fin, as.character)) |> 
+    inner_join(extras_include, by = "fin") 
+
+extra_sbp_chg <- extra_sbp |> 
+    group_by(fin) |> 
+    arrange(fin, event_datetime, event) |> 
+    filter(
+        event_datetime >= start_datetime,
+        event_datetime <= start_datetime + hours(30)
+    ) |> 
+    mutate(
+        sbp_first = first(result_val),
+        sbp_chg = result_val - sbp_first,
+        sbp_chg_pct = sbp_chg / sbp_first,
+        event_time_hrs = difftime(event_datetime, start_datetime, units = "hours"),
+        across(event_time_hrs, as.numeric)
+    )
+
+extra_sbp_chg_6h <- extra_sbp_chg |> 
+    mutate(time_diff = abs(event_time_hrs - 6)) |> 
+    arrange(fin, time_diff) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_chg_6h = sbp_chg, sbp_pct_6h = sbp_chg_pct)
+
+extra_sbp_chg_12h <- extra_sbp_chg |> 
+    mutate(time_diff = abs(event_time_hrs - 12)) |> 
+    arrange(fin, time_diff) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_chg_12h = sbp_chg, sbp_pct_12h = sbp_chg_pct)
+
+extra_sbp_chg_18h <- extra_sbp_chg |> 
+    mutate(time_diff = abs(event_time_hrs - 18)) |> 
+    arrange(fin, time_diff) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_chg_18h = sbp_chg, sbp_pct_18h = sbp_chg_pct)
+
+extra_sbp_chg_24h <- extra_sbp_chg |> 
+    mutate(time_diff = abs(event_time_hrs - 24)) |> 
+    arrange(fin, time_diff) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    select(fin, sbp_chg_24h = sbp_chg, sbp_pct_24h = sbp_chg_pct)
+
+data_extras <- extra_pts |> 
+    left_join(extra_sbp_chg_6h, by = "fin") |> 
+    left_join(extra_sbp_chg_12h, by = "fin") |> 
+    left_join(extra_sbp_chg_18h, by = "fin") |> 
+    left_join(extra_sbp_chg_24h, by = "fin") |> 
+    arrange(fin) |> 
+    ungroup() |> 
+    select(-encntr_id, -tfr_encntr_id)
+
+write.xlsx(data_extras, paste0(f, "final/extras_data.xlsx"), overwrite = TRUE)
