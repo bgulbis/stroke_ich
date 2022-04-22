@@ -3,6 +3,7 @@ library(readxl)
 library(mbohelpr)
 library(lubridate)
 library(openxlsx)
+library(themebg)
 
 f <- set_data_path("stroke_ich", "ich_sarah")
 
@@ -622,3 +623,103 @@ data_extras <- extra_pts |>
     select(-encntr_id, -tfr_encntr_id)
 
 write.xlsx(data_extras, paste0(f, "final/extras_data.xlsx"), overwrite = TRUE)
+
+
+# figures -----------------------------------------------------------------
+
+fig_pts <- read_excel(paste0(f, "raw/figs_data.xlsx"), sheet = 2) |> 
+    select(fin = FIN, first_sbp_presenting) |> 
+    mutate(
+        across(fin, as.character),
+        group = if_else(first_sbp_presenting >= 220, "gte_220", "150-219"),
+        across(group, factor)
+    )
+
+df_pts_fig <- raw_pts |> 
+    inner_join(fig_pts, by = "fin") |> 
+    select(fin, group, start_datetime, first_sbp) 
+
+df_sbp_fig <- raw_sbp |> 
+    inner_join(df_pts_fig, by = "fin") |> 
+    ungroup() |> 
+    mutate(
+        across(start_datetime, force_tz, tzone = "US/Central"),
+        arrive_event_hrs = difftime(event_datetime, start_datetime, units = "hours"),
+        across(arrive_event_hrs, as.numeric)
+    ) |> 
+    filter(
+        arrive_event_hrs > -0.5,
+        arrive_event_hrs <= 48
+    )
+
+g_fig <- df_sbp_fig |>
+    ggplot(aes(x = arrive_event_hrs, y = result_val, linetype = group)) +
+    # geom_point(alpha = 0.5, shape = 1) +
+    geom_smooth(color = "black") +
+    ggtitle("Systolic blood pressure over the first 48 hours") +
+    scale_x_continuous("Hours from presentation", breaks = seq(0, 48, 12)) +
+    ylab("Systolic blood pressure (mmHg)") +
+    scale_linetype_manual("Initial SBP (mmHg)", values = c("dotted", "solid"), labels = c("150-219", ">/= 220")) +
+    coord_cartesian(ylim = c(100, 250)) +
+    theme_bg_print() +
+    theme(legend.position = "top")
+
+g_fig
+
+ggsave(paste0(f, "figs/sbp_graph.jpg"), device = "jpeg", width = 6, height = 4, units = "in")
+
+x <- ggplot_build(g_fig)
+df_x <- x$data[[1]]
+
+df_fig <- df_x |>
+    select(x, y, group) |>
+    pivot_wider(names_from = group, values_from = y)
+
+write.xlsx(df_fig, paste0(f, "final/data_sbp_graph.xlsx"), overwrite = TRUE)
+
+df_sbp_change <- df_pts_fig |>
+    rename(sbp_arrive = first_sbp) |> 
+    left_join(df_sbp_chg_6h, by = "fin") |>
+    left_join(df_sbp_chg_12h, by = "fin") |>
+    left_join(df_sbp_chg_18h, by = "fin") |>
+    left_join(df_sbp_chg_24h, by = "fin")
+
+df_fig2 <- df_sbp_change |>
+    group_by(fin) |>
+    # left_join(pt_groups, by = "fin") |>
+    select(fin, group, starts_with("sbp_pct")) |>
+    pivot_longer(cols=starts_with("sbp_pct")) |>
+    mutate(
+        across(name, str_replace_all, pattern = "sbp_pct_", replacement = ""),
+        across(name, factor, labels = c("6", "12", "18", "24")),
+        across(value, ~.*100)
+    )
+
+df_fig2 |>
+    ggplot(aes(x = name, y = value, color = group)) +
+    geom_boxplot() +
+    ggtitle("Change in systolic blood pressure over the first 24 hours") +
+    xlab("Hours from presentation") +
+    ylab("Change in systolic blood pressure (%)") +
+    scale_color_brewer("Initial SBP (mmHg)", palette = "Set1", labels = c("150-219", ">/= 220")) +
+    theme_bg()
+
+ggsave(paste0(f, "figs/boxplot.jpg"), device = "jpeg", width = 6, height = 4, units = "in")
+
+df_fig2_xl <- df_sbp_change |>
+    group_by(fin) |>
+    select(fin, group, starts_with("sbp_pct")) |>
+    pivot_longer(cols=starts_with("sbp_pct")) |>
+    mutate(
+        across(name, str_replace_all, pattern = "sbp_pct_", replacement = ""),
+        # across(name, str_replace_all, pattern = "h", replacement = ""),
+        across(name, factor, labels = c("6", "12", "18", "24")),
+        across(value, ~.*100)
+    ) |>
+    arrange(name, group) |> 
+    filter(!is.na(value))
+
+write.xlsx(df_fig2_xl, paste0(f, "final/data_boxplot.xlsx"), overwrite = TRUE)
+
+
+
