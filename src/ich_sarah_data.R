@@ -4,6 +4,7 @@ library(mbohelpr)
 library(lubridate)
 library(openxlsx)
 library(themebg)
+library(broom)
 
 f <- set_data_path("stroke_ich", "ich_sarah")
 
@@ -722,4 +723,20 @@ df_fig2_xl <- df_sbp_change |>
 write.xlsx(df_fig2_xl, paste0(f, "final/data_boxplot.xlsx"), overwrite = TRUE)
 
 
+p1 <- wilcox.test(value ~ group, df_fig2, subset = name == 6) |> glance()
+p2 <- wilcox.test(value ~ group, df_fig2, subset = name == 12) |> glance()
+p3 <- wilcox.test(value ~ group, df_fig2, subset = name == 18) |> glance()
+p4 <- wilcox.test(value ~ group, df_fig2, subset = name == 24) |> glance()
+
+df_p <- bind_rows(p1, p2, p3, p4)
+
+df_fig2_meds <- df_fig2 |> 
+    group_by(group, name) |> 
+    summarize(across(value, median, na.rm = TRUE)) |> 
+    pivot_wider(names_from = group, values_from = value, names_prefix = "median_") |> 
+    rename(hour = name) |> 
+    bind_cols(df_p) |> 
+    mutate(across(p.value, round, digits = 4))
+
+write.xlsx(df_fig2_meds, paste0(f, "final/boxplot_summary.xlsx"), overwrite = TRUE)
 
