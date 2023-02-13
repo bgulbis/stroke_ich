@@ -42,4 +42,47 @@ l <- list(
     "dialysis" = raw_dialysis
 )
 
-write.xlsx(l, paste0(f, "final/meds_dialysis_data.xlsx"), overwrite = TRUE)
+# write.xlsx(l, paste0(f, "final/meds_dialysis_data.xlsx"), overwrite = TRUE)
+
+raw_demog <- get_xlsx_data(paste0(f, "raw"), "supplemental_data", "demographics")
+raw_allergy <- get_xlsx_data(paste0(f, "raw"), "supplemental_data", "allergies") |> 
+    mutate(across(allergy, str_to_lower))
+
+allergy_meds <- str_c(
+    "benazepril",
+    "captopril",
+    "enalapril",
+    "fosinopril",
+    "lisinopril",
+    "moexipril",
+    "perindopril",
+    "quinapril",
+    "ramipril",
+    "trandolapril",
+    "ace inhibitor",
+    "angiotensin converting enzyme",
+    "benicar",
+    "irbesartan",
+    "telmisartan",
+    "losartan",
+    "olmesartan",
+    "valsartan",
+    sep = "|"
+)
+
+df_acei_allergy <- raw_allergy |> 
+    filter(str_detect(allergy, allergy_meds)) |> 
+    mutate(
+        value = TRUE,
+        across(allergy, str_replace_all, pattern = "angiotensin converting enzyme", replacement = "ace"),
+        across(allergy, str_replace_all, pattern = "ace inhibitors", replacement = "ace_inhibitors"),
+        across(allergy, str_replace_all, pattern = "benicar", replacement = "olmesartan"),
+        across(allergy, str_replace_all, pattern = "-| |amlodipine|maleate|potassium|hydrochlorothiazide|besylate|hydrochloride", replacement = "")
+    ) |> 
+    distinct(fin, .keep_all = TRUE) |> 
+    pivot_wider(names_from = allergy, names_sort = TRUE)
+
+data_supp <- raw_demog |> 
+    left_join(df_acei_allergy, by = "fin")
+
+write.xlsx(data_supp, paste0(f, "final/weight_allergy_data.xlsx"), overwrite = TRUE)
