@@ -86,3 +86,36 @@ data_supp <- raw_demog |>
     left_join(df_acei_allergy, by = "fin")
 
 write.xlsx(data_supp, paste0(f, "final/weight_allergy_data.xlsx"), overwrite = TRUE)
+
+raw_master <- read_excel(paste0(f, "raw/master.xlsx"), sheet = "Kyndol's project") |> 
+    # rename_all(str_to_lower) |> 
+    # select(mrn, encounter) |> 
+    mutate(
+        mrn_chr = as.character(MRN),
+        encntr = str_pad(as.character(Encounter), width = 4, side = "left", pad = "0"),
+        # across(encounter, str_pad, width = 4, side = "left", pad = "0"),
+        # across(
+        #     encounter, 
+        #     ~if_else(str_length(.) == 3, str_pad(.))
+        # ),
+        fin = str_c(mrn_chr, encntr, sep = "")
+    ) 
+
+df_dialysis <- raw_dialysis |> 
+    mutate(
+        dialysis_type = case_when(
+            str_detect(event, "CRRT") ~ "CRRT",
+            str_detect(event, "Hemodialysis") ~ "HD",
+            str_detect(event, "Peritoneal") ~ "PD"
+        ),
+        dialysis = TRUE
+    ) |> 
+    distinct(fin, dialysis_type, dialysis) |> 
+    pivot_wider(names_from = dialysis_type, values_from = dialysis, values_fill = FALSE)
+
+data_master <- raw_master |> 
+    left_join(df_dialysis, by = "fin") |> 
+    select(-fin, -mrn_chr, -encntr) |> 
+    mutate(across(c(HD, CRRT, PD), \(x) coalesce(x, FALSE)))
+
+write.xlsx(data_master, paste0(f, "final/master_with_dialysis.xlsx"), overwrite = TRUE)
