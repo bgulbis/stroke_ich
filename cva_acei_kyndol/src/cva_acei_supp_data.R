@@ -119,3 +119,140 @@ data_master <- raw_master |>
     mutate(across(c(HD, CRRT, PD), \(x) coalesce(x, FALSE)))
 
 write.xlsx(data_master, paste0(f, "final/master_with_dialysis.xlsx"), overwrite = TRUE)
+
+raw_ras_pts <- read_excel(paste0(f, "raw/ras_data_patients.xlsx"), sheet = 1) |> 
+    rename_all(str_to_lower) |> 
+    select(mrn, encounter) |> 
+    mutate(
+        across(c(mrn, encounter), as.character),
+        across(encounter, \(x) str_pad(x, width = 4, side = "left", pad = "0")),
+        fin = str_c(mrn, encounter, sep = "")
+    ) 
+
+# raw_ras_2_doses <- read_excel(paste0(f, "raw/ras_data_patients.xlsx"), sheet = 2) |> 
+#     rename_all(str_to_lower) |> 
+#     select(mrn, encounter) |> 
+#     mutate(
+#         across(c(mrn, encounter), as.character),
+#         across(encounter, \(x) str_pad(x, width = 4, side = "left", pad = "0")),
+#         fin = str_c(mrn, encounter, sep = "")
+#     ) 
+# 
+# raw_ras_3_time <- read_excel(paste0(f, "raw/ras_data_patients.xlsx"), sheet = 3) |> 
+#     rename_all(str_to_lower) |> 
+#     select(mrn, encounter) |> 
+#     mutate(
+#         across(c(mrn, encounter), as.character),
+#         across(encounter, \(x) str_pad(x, width = 4, side = "left", pad = "0")),
+#         fin = str_c(mrn, encounter, sep = "")
+#     ) 
+# 
+# raw_ras_4_home <- read_excel(paste0(f, "raw/ras_data_patients.xlsx"), sheet = 4) |> 
+#     rename_all(str_to_lower) |> 
+#     select(mrn, encounter) |> 
+#     mutate(
+#         across(c(mrn, encounter), as.character),
+#         across(encounter, \(x) str_pad(x, width = 4, side = "left", pad = "0")),
+#         fin = str_c(mrn, encounter, sep = "")
+#     ) 
+
+mbo_ras_fin <- concat_encounters(raw_ras_pts$fin, 800)
+print(mbo_ras_fin)
+
+raw_ras_home_meds <- get_xlsx_data(paste0(f, "raw"), "home_meds_ras")
+
+raw_ras_meds <- get_xlsx_data(paste0(f, "raw"), "^meds_ras")
+
+raw_ras_scr <- get_xlsx_data(paste0(f, "raw"), "scr_ras")
+
+df_ras_pts <- distinct(raw_ras_scr, encntr_id, fin)
+
+df_ras_scr <- raw_ras_scr |> 
+    mutate(
+        hosp_day = difftime(event_datetime, admit_datetime, units = "days"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor),
+        across(result_val, \(x) str_replace_all(x, "<|>", "")),
+        across(result_val, as.numeric)
+    ) |> 
+    filter(
+        !is.na(result_val),
+        hosp_day >= 0,
+        hosp_day <= 20
+    ) |> 
+    group_by(encntr_id, fin, hosp_day) |> 
+    summarize(across(result_val, \(x) max(x, na.rm = TRUE)), .groups = "drop") |> 
+    pivot_wider(names_from = hosp_day, names_prefix = "hosp_day_", names_sort = TRUE, values_from = result_val)
+
+df_ras_meds <- raw_ras_meds |> 
+    mutate(
+        hosp_day = difftime(med_datetime, admit_datetime, units = "days"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    filter(
+        hosp_day >= 0,
+        hosp_day <= 20
+    ) |> 
+    count(encntr_id, fin, hosp_day) |> 
+    pivot_wider(names_from = hosp_day, names_prefix = "ras_doses_day_", names_sort = TRUE, values_from = n)
+
+df_ras_days <- raw_ras_meds |> 
+    mutate(med_date = floor_date(med_datetime, unit = "day")) |> 
+    filter(med_datetime >= admit_datetime) |> 
+    distinct(encntr_id, fin, med_date) |> 
+    count(encntr_id, fin, name = "num_ras_days")
+
+df_ras_meds_start <- raw_ras_meds |> 
+    arrange(encntr_id, fin, med_datetime) |> 
+    filter(med_datetime >= admit_datetime) |> 
+    distinct(encntr_id, fin, admit_datetime, .keep_all = TRUE) |> 
+    select(encntr_id, fin, admit_datetime, ras_start_datetime = med_datetime)
+
+x <- distinct(raw_ras_home_meds, medication)
+
+ras_meds <- c(
+    "benazepril",
+    "olmesartan",
+    "valsartan",
+    "captopril",
+    "enalapril",
+    "irbesartan",
+    "lisinopril",
+    "telmisartan",
+    "losartan",
+    "quinapril",
+    "ramipril",
+    "trandolapril"
+)
+
+df_ras_home_meds <- raw_ras_home_meds |> 
+    filter(medication %in% ras_meds) |> 
+    distinct(encntr_id, .keep_all = TRUE) |> 
+    mutate(home_ras = TRUE)
+
+data_ras_scr <- df_ras_pts |> 
+    left_join(df_ras_scr, by = c("encntr_id", "fin")) |> 
+    select(-encntr_id)
+
+data_ras_meds <- df_ras_pts |> 
+    left_join(df_ras_meds, by = c("encntr_id", "fin")) |> 
+    select(-encntr_id)
+
+data_ras_start <- df_ras_meds_start |> 
+    inner_join(df_ras_days, by = c("encntr_id", "fin")) |> 
+    select(-encntr_id)
+
+data_ras_home_meds <- df_ras_pts |> 
+    left_join(df_ras_home_meds, by = c("encntr_id", "fin")) |> 
+    select(-encntr_id) |> 
+    mutate(across(home_ras, \(x) coalesce(x, FALSE)))
+
+l2 <- list(
+    "daily_scr" = data_ras_scr,
+    "daily_ras_intake" = data_ras_meds,
+    "start_time_rasi" = data_ras_start,
+    "ras_home_med" = data_ras_home_meds
+)
+
+write.xlsx(l2, paste0(f, "final/data_ras.xlsx"), overwrite = TRUE)
