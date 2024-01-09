@@ -30,6 +30,8 @@ WHERE
 	AND PATIENTS.PERSON_ID = CLINICAL_EVENT.PERSON_ID
 	AND CLINICAL_EVENT.EVENT_CD IN (
 		31090, -- Creatinine Lvl
+		32619, -- Sodium Lvl
+		30940, -- Chloride Lvl
 		134422765, -- Glasgow Coma Score
 		134590635, -- NIH Stroke Score
 		297370347, -- NIH Stroke Scale Assessment
