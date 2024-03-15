@@ -99,13 +99,28 @@ df_sbp <- raw_bp |>
 #     geom_smooth() +
 #     scale_x_continuous(breaks = seq(0, 24, 4))
     
-# df_sbp_max_4h <- df_sbp |> 
+df_sbp_max_top3 <- df_sbp |>
+    filter(
+        arrive_event_hr > 0,
+        arrive_event_hr <= 4
+    ) |>
+    slice_max(result_val, n = 3, by = fin) |> 
+    summarize(across(result_val, mean), .by = fin) |>
+    mutate(
+        sbp_25pct = result_val * 0.75,
+        across(c(result_val, sbp_25pct), \(x) round(x, 0))
+    ) |> 
+    select(fin, sbp_max_top3 = result_val, sbp_25pct)
+
+# df_sbp_max_4h <- df_sbp |>
 #     filter(
 #         arrive_event_hr > 0,
 #         arrive_event_hr <= 4
-#     ) |> 
-#     summarize(across(result_val, max), .by = fin) |> 
-#     select(fin, sbp_max_4h = result_val)
+#     ) |>
+#     summarize(across(result_val, max), .by = fin) |>
+#     select(fin, sbp_max_4h = result_val) |> 
+#     left_join(df_sbp_max_top3, by = "fin")
+
 
 # df_sbp_mean_0h <- df_sbp |> 
 #     filter(event_datetime <= arrive_datetime + hours(1)) |> 
@@ -113,73 +128,103 @@ df_sbp <- raw_bp |>
 #     mutate(across(result_val, \(x) round(x, 0))) |> 
 #     select(fin, sbp_mean_0h = result_val)
 
-df_sbp_4h <- df_sbp |> 
-    filter(
-        arrive_event_hr > 0,
-        arrive_event_hr <= 4
-    ) |> 
-    mutate(event = "sbp") |> 
-    calc_runtime(.id = fin) |> 
-    summarize_data(.id = fin, .result = result_val) |> 
-    select(fin, sbp_initial = first_result, sbp_mean_first_4h = time_wt_avg, sbp_median_first_4h = median_result, sbp_max_first_4h = max_result)
-
-df_sbp_24h <- df_sbp |> 
-    filter(
-        arrive_event_hr > 4,
-        arrive_event_hr <= 24
-    ) |> 
-    mutate(event = "sbp") |> 
-    calc_runtime(.id = fin) |> 
-    summarize_data(.id = fin, .result = result_val) |> 
-    select(fin, sbp_last = last_result, sbp_mean_4h_24h = time_wt_avg, sbp_median_4h_24h = median_result, sbp_max_4h_24h = max_result)
+# df_sbp_4h <- df_sbp |> 
+#     filter(
+#         arrive_event_hr > 0,
+#         arrive_event_hr <= 4
+#     ) |> 
+#     mutate(event = "sbp") |> 
+#     calc_runtime(.id = fin) |> 
+#     summarize_data(.id = fin, .result = result_val) |> 
+#     select(fin, sbp_initial = first_result, sbp_mean_first_4h = time_wt_avg, sbp_median_first_4h = median_result, sbp_max_first_4h = max_result)
+# 
+# df_sbp_24h <- df_sbp |> 
+#     filter(
+#         arrive_event_hr > 4,
+#         arrive_event_hr <= 24
+#     ) |> 
+#     mutate(event = "sbp") |> 
+#     calc_runtime(.id = fin) |> 
+#     summarize_data(.id = fin, .result = result_val) |> 
+#     select(fin, sbp_last = last_result, sbp_mean_4h_24h = time_wt_avg, sbp_median_4h_24h = median_result, sbp_max_4h_24h = max_result)
 
 
 df_sbp_mean_4h <- df_sbp |> 
     filter(
-        event_datetime > arrive_datetime + hours(3),
-        event_datetime <= arrive_datetime + hours(5)
-    ) |> 
-    summarize(across(result_val, mean), .by = fin) |> 
-    mutate(across(result_val, \(x) round(x, 0))) |> 
-    select(fin, sbp_mean_4h = result_val)
-
-df_sbp_mean_24h <- df_sbp |> 
-    filter(
-        event_datetime > arrive_datetime + hours(23),
-        event_datetime <= arrive_datetime + hours(25)
-    ) |> 
-    summarize(across(result_val, mean), .by = fin) |> 
-    mutate(across(result_val, \(x) round(x, 0))) |> 
-    select(fin, sbp_mean_24h = result_val)
-
-df_sbp_25pct_4h <- df_sbp |> 
-    filter(
         arrive_event_hr > 3,
         arrive_event_hr <= 5
     ) |> 
-    summarize(across(result_val, list(mean = mean, median = median), .names = "sbp_{.fn}_4h"), .by = fin) |> 
-    left_join(df_sbp_4h, by = "fin") |> 
+    summarize(across(result_val, mean), .by = fin) |> 
+    mutate(across(result_val, \(x) round(x, 0))) |> 
+    select(fin, sbp_mean_4h = result_val) |> 
+    inner_join(df_sbp_max_top3, by = "fin") |> 
     mutate(
-        sbp_25pct_decr_mean_4h = 1 - (sbp_mean_4h / sbp_max_first_4h),
-        sbp_25pct_decr_median_4h = 1 - (sbp_median_4h / sbp_max_first_4h)
+        sbp_pct_4h = 1 - (sbp_mean_4h / sbp_max_top3),
+        sbp_decr_25pct_4h = sbp_mean_4h <= sbp_25pct
     )
 
-df_sbp_drop <- raw_demog |> 
-    select(fin) |> 
-    left_join(df_sbp_mean_0h, by = "fin") |> 
-    # left_join(df_sbp_mean_4h, by = "fin") |> 
-    # left_join(df_sbp_mean_24h, by = "fin") |> 
-    left_join(df_sbp_max_4h, by = "fin") |> 
+# df_sbp_decr_25pct_4h <- df_sbp_mean_4h |> 
+#     filter(sbp_decr_25pct_4h)
+
+df_sbp_mean_24h <- df_sbp |> 
+    # semi_join(df_sbp_decr_25pct_4h, by = "fin") |> 
+    filter(
+        arrive_event_hr > 23,
+        arrive_event_hr <= 25
+    ) |> 
+    summarize(across(result_val, mean), .by = fin) |> 
+    mutate(across(result_val, \(x) round(x, 0))) |> 
+    select(fin, sbp_mean_24h = result_val) |> 
+    inner_join(df_sbp_max_top3, by = "fin") |> 
     mutate(
-        sbp_25pct_mean = sbp_mean_0h * 0.75,
-        sbp_25pct_max = sbp_max_4h * 0.75
-        # sbp_pct_drop_from_mean_4h = 1 - (sbp_mean_4h / sbp_mean_0h),
-        # sbp_pct_drop_from_max_4h = 1 - (sbp_mean_4h / sbp_max_4h),
-        # sbp_pct_drop_from_mean_24h = 1 - (sbp_mean_24h / sbp_mean_0h),
-        # sbp_pct_drop_from_max_24h = 1 - (sbp_mean_24h / sbp_max_4h),
-        # sbp_25pct_drop_mean_4h = sbp_mean_4h <= sbp_25pct_drop_mean,
-        # sbp_25pct_drop_max_4h = sbp_mean_4h <= sbp_25pct_drop_max
+        sbp_pct_24h = 1 - (sbp_mean_24h / sbp_max_top3),
+        sbp_decr_25pct_24h = sbp_mean_24h <= sbp_25pct
     )
+
+df_sbp_decr_25pct_24h <- df_sbp |> 
+    # semi_join(df_sbp_decr_25pct_4h, by = "fin") |> 
+    filter(
+        arrive_event_hr > 4,
+        arrive_event_hr <= 24
+    ) |>     
+    inner_join(df_sbp_max_top3, by = "fin") |> 
+    mutate(sbp_decr_25pct = result_val <= sbp_25pct) |> 
+    summarize(
+        n_sbp = n(),
+        across(sbp_decr_25pct, sum),
+        .by = fin
+    ) |> 
+    mutate(pct_sbp_25pct_decr = sbp_decr_25pct / n_sbp)
+
+
+# df_sbp_25pct_4h <- df_sbp |> 
+#     filter(
+#         arrive_event_hr > 3,
+#         arrive_event_hr <= 5
+#     ) |> 
+#     summarize(across(result_val, list(mean = mean, median = median), .names = "sbp_{.fn}_4h"), .by = fin) |> 
+#     left_join(df_sbp_4h, by = "fin") |> 
+#     mutate(
+#         sbp_25pct_decr_mean_4h = 1 - (sbp_mean_4h / sbp_max_first_4h),
+#         sbp_25pct_decr_median_4h = 1 - (sbp_median_4h / sbp_max_first_4h)
+#     )
+
+# df_sbp_drop <- raw_demog |> 
+#     select(fin) |> 
+#     left_join(df_sbp_mean_0h, by = "fin") |> 
+#     # left_join(df_sbp_mean_4h, by = "fin") |> 
+#     # left_join(df_sbp_mean_24h, by = "fin") |> 
+#     left_join(df_sbp_max_4h, by = "fin") |> 
+#     mutate(
+#         sbp_25pct_mean = sbp_mean_0h * 0.75,
+#         sbp_25pct_max = sbp_max_4h * 0.75
+#         # sbp_pct_drop_from_mean_4h = 1 - (sbp_mean_4h / sbp_mean_0h),
+#         # sbp_pct_drop_from_max_4h = 1 - (sbp_mean_4h / sbp_max_4h),
+#         # sbp_pct_drop_from_mean_24h = 1 - (sbp_mean_24h / sbp_mean_0h),
+#         # sbp_pct_drop_from_max_24h = 1 - (sbp_mean_24h / sbp_max_4h),
+#         # sbp_25pct_drop_mean_4h = sbp_mean_4h <= sbp_25pct_drop_mean,
+#         # sbp_25pct_drop_max_4h = sbp_mean_4h <= sbp_25pct_drop_max
+#     )
     
 # x <- distinct(raw_home_meds, medication) |> arrange(medication)
 
@@ -193,6 +238,10 @@ data_patients <- raw_demog |>
     select(fin) |> 
     left_join(df_home_oac, by = "fin") |> 
     left_join(df_ffp, by = "fin") |> 
-    left_join(df_kcentra, by = "fin") 
+    left_join(df_kcentra, by = "fin") |> 
+    left_join(df_sbp_mean_4h, by = "fin") |> 
+    left_join(df_sbp_mean_24h, by = c("fin", "sbp_max_top3", "sbp_25pct")) |> 
+    left_join(df_sbp_decr_25pct_24h, by = "fin") |> 
+    mutate(sbp_decr_sustained = sbp_decr_25pct_4h & sbp_decr_25pct_24h)
 
-    
+write.xlsx(data_patients, paste0(f, "final/sbp_data_lindsey.xlsx"), overwrite = TRUE)    
