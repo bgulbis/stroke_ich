@@ -224,3 +224,107 @@ data_patients <- raw_demographics |>
     select(-encntr_id, -arrive_datetime, -admit_datetime, -disch_datetime)
 
 write.xlsx(data_patients, paste0(f, "final/tbi_dvt_data.xlsx"), overwrite = TRUE)
+
+
+# missing data patients ---------------------------------------------------------------------------------------------------------------
+
+raw_miss_demog <- read_excel(paste0(f, "raw/missing_demog.xlsx")) |>
+    rename_all(str_to_lower)
+
+raw_locations <- read_excel(paste0(f, "raw/locations.xlsx")) |>
+    rename_all(str_to_lower)
+
+raw_vent_extubation <- read_excel(paste0(f, "raw/vent_extubation.xlsx")) |>
+    rename_all(str_to_lower)
+
+raw_vent_times <- read_excel(paste0(f, "raw/vent_times.xlsx")) |>
+    rename_all(str_to_lower)
+
+raw_vte_proph <- read_excel(paste0(f, "raw/vte_prophylaxis.xlsx")) |>
+    rename_all(str_to_lower)
+
+
+tmp_vent_last <- raw_vent_times |>
+    filter(event == "Vent Stop Time") |>
+    arrange(encntr_id, result_datetime) |>
+    group_by(encntr_id) |>
+    summarize(across(result_datetime, \(x) max(x, na.rm = TRUE))) |>
+    rename(last_vent_datetime = result_datetime)
+
+df_vent <- raw_vent_extubation |>
+    bind_rows(raw_vent_times) |>
+    filter(event %in% c("Vent Start Time", "Extubation Event")) |>
+    mutate(
+        across(result_datetime, \(x) coalesce(x, event_datetime)),
+        across(event, \(x) str_replace_all(x, pattern = c("Vent Start Time" = "intubation", "Extubation Event" = "extubation")))
+    ) |>
+    arrange(encntr_id, result_datetime) |>
+    group_by(encntr_id) |>
+    mutate(new_event = event != lag(event) | is.na(lag(event))) |>
+    mutate(across(new_event, cumsum)) |>
+    distinct(encntr_id, new_event, .keep_all = TRUE) |>
+    filter(!(new_event == 1 & event == "extubation")) |>
+    group_by(encntr_id, event) |>
+    mutate(
+        vent = TRUE,
+        vent_n = cumsum(vent)
+    ) |>
+    select(encntr_id, vent_n, event, result_datetime) |>
+    spread(event, result_datetime) |>
+    select(
+        encntr_id,
+        vent_n,
+        intubate_datetime = intubation,
+        extubate_datetime = extubation
+    ) |>
+    left_join(tmp_vent_last, by = "encntr_id") |>
+    left_join(raw_miss_demog[c("encntr_id", "disch_datetime")], by = "encntr_id") |>
+    mutate(
+        across(extubate_datetime, \(x) coalesce(x, last_vent_datetime)),
+        across(extubate_datetime, \(x) coalesce(x, disch_datetime)),
+        vent_duration_days = difftime(extubate_datetime, intubate_datetime, units = "days"),
+        across(vent_duration_days, as.numeric)
+    ) |>
+    select(-last_vent_datetime, -disch_datetime) |> 
+    filter(vent_duration_days > 0)
+
+icu <- c(
+    "HH 7J",
+    "HH CCU",
+    "HH CVICU",
+    "HH HFIC",
+    "HH MICU",
+    "HH NVIC",
+    "HH S MICU",
+    "HH S SHIC",
+    "HH S STIC",
+    "HH S TSCU",
+    "HH S TSIC",
+    "HH STIC",
+    "HH TICU",
+    "HH TSCU",
+    "HH TSIC"
+)
+
+df_icu_los <- raw_locations |>
+    filter(nurse_unit %in% icu) |>
+    group_by(encntr_id) |>
+    summarize(
+        across(unit_los, sum),
+        icu_start = min(unit_in_datetime),
+        icu_stop = max(unit_out_datetime)
+    )
+
+df_vte <- raw_vte_proph |> 
+    filter(admin_route == "SUB-Q") |> 
+    distinct(encntr_id) |> 
+    mutate(vte_proph = TRUE)
+
+df_miss_data <- raw_miss_demog |> 
+    select(encntr_id, fin, age, sex, race, weight, los) |> 
+    left_join(df_icu_los, by = "encntr_id") |> 
+    left_join(df_vent, by = "encntr_id") |> 
+    left_join(df_vte, by = "encntr_id") |> 
+    select(-encntr_id, -vent_n, -contains("datetime"), -icu_start, -icu_stop, icu_los = unit_los)
+
+write.xlsx(df_miss_data, paste0(f, "final/missing_data_pts.xlsx"), overwrite = TRUE)
