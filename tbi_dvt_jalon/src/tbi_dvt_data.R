@@ -13,6 +13,13 @@ raw_pts <- read_excel(paste0(f, "raw/tbi_patients.xlsx")) |>
 mbo_fin <- concat_encounters(raw_pts$fin)
 print(mbo_fin)
 
+raw_missing <- read_excel(paste0(f, "raw/missing_data_fins.xlsx")) |> 
+    rename_all(str_to_lower)
+
+mbo_fin_miss <- concat_encounters(raw_missing$fin)
+print(mbo_fin_miss)
+
+
 raw_demographics <- read_excel(paste0(f, "raw/demographics.xlsx")) |>
     rename_all(str_to_lower)
 
