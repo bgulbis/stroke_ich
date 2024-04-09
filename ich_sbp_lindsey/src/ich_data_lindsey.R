@@ -12,6 +12,18 @@ dt_fmt <- "%m/%d/%Y %I:%M:%S %p"
 raw_fin <- read_excel(paste0(f, "raw/fin_list.xlsx")) |> 
     rename_all(str_to_lower)
 
+raw_oac <-  read_excel(paste0(f, "raw/home_oac_patients.xlsx")) |> 
+    rename_all(str_to_lower) |> 
+    mutate(across(c(dialysis, warfarin, enoxaparin, apixaban, rivaroxaban), as.logical))
+
+df_oac <- raw_oac |> 
+    filter(
+        (warfarin | apixaban | rivaroxaban | edoxaban | dabigatran),
+        is.na(pregnant),
+        is.na(dialysis)
+    )
+
+
 df_fix <- raw_fin |> 
     filter(str_length(fin) < 12) |> 
     mutate(
