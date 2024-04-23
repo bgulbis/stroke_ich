@@ -44,7 +44,8 @@ WHERE
 		-- Abd/Pelv w/wo CT
 		16961960, -- Abdomen/Pelvis wo contrast MRI
 		50728906, -- Abdomen/Pelvis wo contrast CT
-		386209004 -- Abdomen and Chest CTA
+		386209004, -- Abdomen and Chest CTA
 		-- 9851881, -- Chest CTA	
+		50728911 -- CTA Head/Neck CT
 	)
 	AND CLINICAL_EVENT.VALID_UNTIL_DT_TM > DATE '2099-12-31'
