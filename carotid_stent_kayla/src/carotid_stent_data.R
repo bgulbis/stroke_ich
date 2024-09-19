@@ -167,9 +167,9 @@ df_eptif_drip <- raw_meds |>
     ) |> 
     mutate(rate_adj = if_else(!is.na(rate_unit), rate, NA_real_)) |> 
     group_by(encntr_id) |> 
-    fill(rate_adj, rate_unit, .direction = "downup") |> 
-    drip_runtime(.rate = rate_adj) |> 
-    summarize_drips(.rate = rate_adj)
+    fill(rate_adj, rate_unit, .direction = "downup") 
+    # drip_runtime(.rate = rate_adj) |> 
+    # summarize_drips(.rate = rate_adj)
 
 data_patients <- raw_demographics |> 
     select(encntr_id:weight, los, admit_datetime, disch_datetime, disch_disposition) |> 
