@@ -199,16 +199,23 @@ df_eptif_pts <- raw_meds |>
     ) |> 
     select(encntr_id, eptif_drip_start = med_datetime, arrive_eptif_drip_hrs)
 
+df_weight <- raw_demographics |> 
+    select(encntr_id, weight)
+
 df_eptif_drip <- raw_meds |> 
     filter(
         medication == "eptifibatide",
-        !is.na(iv_event)
+        !is.na(iv_event),
+        iv_event != "Bolus"
     ) |> 
+    left_join(df_weight, by = "encntr_id") |> 
     mutate(
+        across(order_weight, \(x) coalesce(x, weight)),
         across(freetext_rate, str_to_lower),
         across(freetext_rate, \(x) str_remove_all(x, "titrate|see comments|as directed|continue at|for 6-hours.|over 24 hours|run at|infusion rate -")),
         free_rate = str_extract(freetext_rate, "[0-9]\\.?[0-9]{0,2}"),
-        across(c(free_rate, order_weight), as.numeric),
+        across(c(free_rate, order_weight, concentration, volume), as.numeric),
+        across(concentration, \(x) coalesce(x, 75)),
         freerate_units = str_extract(freetext_rate, "microgram[s]?/kg/min|mcg/kg/min|ml/h[r]?|cc/hr|ml per hour|ml/hour"),
         across(
             freerate_units, \(x) case_when(
@@ -226,19 +233,33 @@ df_eptif_drip <- raw_meds |>
                 rate_unit == "microgram/kg/hr" ~ x / 60,
                 rate_unit == "mg/min" ~ x * 1000 / order_weight,
                 rate_unit == "mg/kg/min" ~ x * 1000,
+                is.na(x) & dose_unit == "mL" & !is.na(concentration) ~ dose * concentration / volume * 1000 / 60 / order_weight,
+                is.na(x) & dose_unit == "mg" ~ dose * 1000 / 60 / order_weight,
                 .default = x
             )
-        )
-    ) 
+        ),
+        rate_adj_unit = "microgram/kg/min"
+    ) |> 
     # group_by(encntr_id) |> 
     # fill(rate_adj, rate_unit, .direction = "downup") |> 
     # ungroup()
-    # drip_runtime(.rate = rate_adj) |> 
-    # summarize_drips(.rate = rate_adj)
+    drip_runtime(.rate = rate_adj, .rate_unit = rate_adj_unit) |> 
+    summarize_drips(.rate = rate_adj, .rate_unit = rate_adj_unit)
 
-x <- df_eptif_drip |> 
-    distinct(rate_unit)
-
+df_antiplt <- raw_meds |> 
+    filter(medication %in% c("aspirin", "clopidogrel", "prasugrel", "ticagrelor")) |> 
+    med_runtime() |> 
+    summarize(
+        first_dose = first(dose),
+        max_dose = max(dose),
+        avg_dose = mean(dose),
+        last_dose = last(dose),
+        num_doses = sum(num_doses),
+        start_datetime = first(dose_start),
+        stop_datetime = last(dose_stop),
+        across(duration, last),
+        .by = c(encntr_id, medication, course_count)
+    )
 
 data_patients <- raw_demographics |> 
     select(encntr_id:weight, los, admit_datetime, disch_datetime, disch_disposition) |> 
@@ -248,6 +269,7 @@ data_patients <- raw_demographics |>
     left_join(df_bp_admit, by = "encntr_id") |> 
     left_join(df_labs_baseln, by = "encntr_id") |> 
     left_join(df_eptif_bolus, by = "encntr_id") |> 
+    left_join(df_eptif_pts, by = "encntr_id") |> 
     select(-encntr_id)
 
 data_nihss <- df_nihss |> 
@@ -262,3 +284,7 @@ data_bp <- df_bp |>
     distinct(encntr_id, event, event_datetime, .keep_all = TRUE) |> 
     pivot_wider(names_from = event, values_from = result_val) |> 
     select(-encntr_id)
+
+data_eptif_drip <- df_eptif_drip |> 
+    left_join(raw_demographics[c("encntr_id", "fin")], by = "encntr_id") |> 
+    select(fin, medication:rate_adj_unit, first_rate, max_rate, avg_rate = time_wt_avg_rate, duration)
