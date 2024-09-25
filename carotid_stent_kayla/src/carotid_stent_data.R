@@ -259,7 +259,170 @@ df_antiplt <- raw_meds |>
         stop_datetime = last(dose_stop),
         across(duration, last),
         .by = c(encntr_id, medication, course_count)
-    )
+    ) |> 
+    left_join(df_arrive, by = "encntr_id") |> 
+    mutate(
+        arrive_antiplt_hrs = difftime(start_datetime, arrive_datetime, units = "hours"),
+        across(arrive_antiplt_hrs, as.numeric)
+    ) |> 
+    select(-arrive_datetime)
+
+df_antiplt_start <- df_antiplt |> 
+    distinct(encntr_id, medication, .keep_all = TRUE) |> 
+    select(encntr_id, medication, arrive_antiplt_hrs) |> 
+    pivot_wider(names_from = medication, values_from = arrive_antiplt_hrs, names_glue = "{medication}_start_hrs")
+
+df_vfnow <- df_labs_vitals |> 
+    filter(event == "plav effect plt") |> 
+    left_join(df_arrive, by = "encntr_id") |> 
+    mutate(
+        arrive_plav_effect_hrs = difftime(event_datetime, arrive_datetime, units = "hours"),
+        across(arrive_plav_effect_hrs, as.numeric)
+    ) |> 
+    arrange(encntr_id, event_datetime)
+
+df_vfnow_first <- df_vfnow |> 
+    distinct(encntr_id, .keep_all = TRUE) |> 
+    select(encntr_id, plav_effect_plt = result_val, arrive_plav_effect_hrs)
+
+l_anticoag_meds <- c(
+    "apixaban",
+    "enoxaparin",
+    "heparin",
+    "rivaroxaban",
+    "warfarin"
+)
+
+df_anticoag <- raw_meds |> 
+    filter(
+        medication %in% l_anticoag_meds,
+        is.na(iv_event),
+        medication != "heparin",
+        !(medication == "enoxaparin" & dose <= 40)
+    ) |> 
+    med_runtime() |> 
+    summarize(
+        first_dose = first(dose),
+        max_dose = max(dose),
+        avg_dose = mean(dose),
+        last_dose = last(dose),
+        num_doses = sum(num_doses),
+        start_datetime = first(dose_start),
+        stop_datetime = last(dose_stop),
+        across(duration, last),
+        .by = c(encntr_id, medication, course_count)
+    ) |> 
+    left_join(df_arrive, by = "encntr_id") |> 
+    mutate(
+        anticoag_start_hrs = difftime(start_datetime, arrive_datetime, units = "hours"),
+        anticoag_stop_hrs = difftime(stop_datetime, arrive_datetime, units = "hours"),
+        across(c(anticoag_start_hrs, anticoag_stop_hrs), as.numeric)
+    ) |> 
+    select(-arrive_datetime)
+
+df_heparin_drip <- raw_meds |> 
+    filter(
+        !is.na(iv_event),
+        medication == "heparin"
+    ) |> 
+    drip_runtime() |> 
+    summarize_drips() |> 
+    left_join(df_arrive, by = "encntr_id") |> 
+    mutate(
+        anticoag_start_hrs = difftime(start_datetime, arrive_datetime, units = "hours"),
+        anticoag_stop_hrs = difftime(stop_datetime, arrive_datetime, units = "hours"),
+        across(c(anticoag_start_hrs, anticoag_stop_hrs), as.numeric)
+    ) |> 
+    select(-arrive_datetime)
+
+df_anticoag_first <- df_anticoag |>     
+    select(encntr_id, medication, anticoag_start_hrs, anticoag_start_hrs) |> 
+    bind_rows(df_heparin_drip[c("encntr_id", "medication", "anticoag_start_hrs", "anticoag_stop_hrs")]) |> 
+    arrange(encntr_id, anticoag_start_hrs) |> 
+    left_join(df_eptif_drip[c("encntr_id", "start_datetime")], by = "encntr_id") |>
+    left_join(df_arrive, by = "encntr_id") |>
+    mutate(
+        eptif_stop = difftime(start_datetime, arrive_datetime, units = "hours"),
+        across(eptif_stop, as.numeric)
+    ) |>
+    filter(anticoag_start_hrs > eptif_stop | is.na(eptif_stop)) |>
+    distinct(encntr_id, .keep_all = TRUE) |> 
+    rename(anticoag = medication)
+
+l_antihtn_meds <- c(
+    "amlodipine",
+    "atenolol",
+    "bisoprolol",
+    "bumetanide",
+    "captopril",
+    "carvedilol",
+    "clonidine",
+    "diltiazem",
+    "doxazosin",
+    "enalapril",
+    "esmolol",
+    "furosemide",
+    "hydralazine",
+    "hydrochlorothiazide",
+    "hydrochlorothiazide-triamterene",
+    "irbesartan",
+    "labetalol",
+    "lisinopril",
+    "losartan",
+    "metolazone",
+    "metoprolol",
+    "nicardipine",
+    "nifedipine",
+    "nimodipine",
+    "nitroglycerin",
+    "olmesartan",
+    "propranolol",
+    "ramipril",
+    "sacubitril-valsartan",
+    "sotalol",
+    "torsemide",
+    "valsartan",
+    "verapamil"
+)
+
+df_antihtn <- raw_meds |> 
+    filter(
+        medication %in% l_antihtn_meds,
+        is.na(iv_event)
+    ) |> 
+    med_runtime() |> 
+    summarize(
+        first_dose = first(dose),
+        max_dose = max(dose),
+        avg_dose = mean(dose),
+        last_dose = last(dose),
+        num_doses = sum(num_doses),
+        start_datetime = first(dose_start),
+        stop_datetime = last(dose_stop),
+        across(duration, last),
+        .by = c(encntr_id, medication, course_count)
+    ) |> 
+    left_join(df_arrive, by = "encntr_id") |> 
+    mutate(
+        antihtn_start_hrs = difftime(start_datetime, arrive_datetime, units = "hours"),
+        across(antihtn_start_hrs, as.numeric)
+    ) |> 
+    select(-arrive_datetime)
+
+df_antihtn_drip <- raw_meds |> 
+    filter(
+        medication %in% l_antihtn_meds,
+        !is.na(iv_event)
+    ) |> 
+    drip_runtime() |> 
+    filter(!is.na(rate)) |> 
+    summarize_drips() |> 
+    left_join(df_arrive, by = "encntr_id") |> 
+    mutate(
+        antihtn_start_hrs = difftime(start_datetime, arrive_datetime, units = "hours"),
+        across(antihtn_start_hrs, as.numeric)
+    ) |> 
+    select(-arrive_datetime)
 
 data_patients <- raw_demographics |> 
     select(encntr_id:weight, los, admit_datetime, disch_datetime, disch_disposition) |> 
@@ -270,6 +433,9 @@ data_patients <- raw_demographics |>
     left_join(df_labs_baseln, by = "encntr_id") |> 
     left_join(df_eptif_bolus, by = "encntr_id") |> 
     left_join(df_eptif_pts, by = "encntr_id") |> 
+    left_join(df_antiplt_start, by = "encntr_id") |> 
+    left_join(df_vfnow_first, by = "encntr_id") |> 
+    left_join(df_anticoag_first, by = "encntr_id") |> 
     select(-encntr_id)
 
 data_nihss <- df_nihss |> 
@@ -288,3 +454,32 @@ data_bp <- df_bp |>
 data_eptif_drip <- df_eptif_drip |> 
     left_join(raw_demographics[c("encntr_id", "fin")], by = "encntr_id") |> 
     select(fin, medication:rate_adj_unit, first_rate, max_rate, avg_rate = time_wt_avg_rate, duration)
+
+data_antiplt <- df_antiplt |> 
+    left_join(raw_demographics[c("encntr_id", "fin")], by = "encntr_id") |> 
+    select(fin, everything(), -encntr_id)
+
+data_vfnow <- df_vfnow |> 
+    # left_join(raw_demographics[c("encntr_id", "fin")], by = "encntr_id") |> 
+    select(fin, event_datetime, event:result_units, arrive_plav_effect_hrs)
+
+data_antihtn <- df_antihtn |> 
+    select(encntr_id, medication, antihtn_start_hrs) |> 
+    bind_rows(df_antihtn_drip[c("encntr_id", "medication", "antihtn_start_hrs")]) |> 
+    arrange(encntr_id, antihtn_start_hrs) |> 
+    left_join(raw_demographics[c("encntr_id", "fin")], by = "encntr_id") |> 
+    select(fin, everything(), -encntr_id)
+
+l <- list(
+    "patients" = data_patients,
+    "nihss" = data_nihss,
+    "home_meds" = data_home_meds,
+    "tpa" = data_tpa,
+    "blood_pressures" = data_bp,
+    "eptifibatide_drips" = data_eptif_drip,
+    "antiplatelet_doses" = data_antiplt,
+    "plavix_effect_results" = data_vfnow,
+    "anithtn_meds" = data_antihtn
+)
+
+write.xlsx(l, paste0(f, "final/carotid_stent_data.xlsx"), overwrite = TRUE)
