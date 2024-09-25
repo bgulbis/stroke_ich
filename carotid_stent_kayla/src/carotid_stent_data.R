@@ -424,8 +424,18 @@ df_antihtn_drip <- raw_meds |>
     ) |> 
     select(-arrive_datetime)
 
+zz_nurse_units <- distinct(raw_locations, nurse_unit) |> arrange(nurse_unit)
+
+df_icu_los <- raw_locations |> 
+    filter(nurse_unit %in% c("HH 7J", "HH CCU", "HH CVICU", "HH HFIC", "HH NVIC", "HH S MICU", "HH S STIC")) |> 
+    summarize(
+        icu_los = sum(unit_los),
+        .by = encntr_id
+    )
+
 data_patients <- raw_demographics |> 
     select(encntr_id:weight, los, admit_datetime, disch_datetime, disch_disposition) |> 
+    left_join(df_icu_los, by = "encntr_id") |> 
     left_join(df_diag_primary, by = "encntr_id") |> 
     left_join(df_fibrinolytic, by = "encntr_id") |> 
     left_join(df_nihss_admit, by = "encntr_id") |> 
