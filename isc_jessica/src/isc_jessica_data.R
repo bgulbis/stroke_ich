@@ -189,9 +189,10 @@ df_bp_meds <- raw_meds |>
     ) |> 
     mutate(
         med_grp = case_when(
+            medication %in% c("captopril", "enalapril", "lisinopril") ~ "acei",
             medication %in% c("losartan", "olmesartan", "valsartan") ~ "arb",
             medication == "sacubitril-valsartan" ~ "arni",
-            .default = "acei"
+            .default = "other_bp"
         )
     ) |> 
     summarize(
@@ -204,11 +205,11 @@ df_bp_meds <- raw_meds |>
         hosp_day = difftime(dose_start, admit_datetime, units = "days"),
         across(hosp_day, as.numeric),
         across(duration, \(x) x / 24),
-        across(c(hosp_day, duration), floor),
+        across(c(hosp_day, duration), ceiling),
         .by = c(encntr_id, med_grp)
     ) |> 
     select(encntr_id, med_grp, hosp_day, duration) |> 
-    pivot_wider(names_from = med_grp, values_from = c(hosp_day, duration), names_glue = "{med_grp}_{.value}")
+    pivot_wider(names_from = med_grp, values_from = c(hosp_day, duration), names_glue = "{med_grp}_{.value}", names_sort = TRUE)
 
 df_bp_agents <- raw_meds |> 
     filter(
