@@ -1,0 +1,74 @@
+WITH PATIENTS AS (
+	SELECT DISTINCT
+		ENCOUNTER.ENCNTR_ID
+		-- ENCOUNTER.PERSON_ID,
+		-- pi_get_cv_display(ENCOUNTER.LOC_FACILITY_CD) AS FACILITY,
+		-- ENCOUNTER.ARRIVE_DT_TM,
+		-- ENCOUNTER.REG_DT_TM,
+		-- ENCOUNTER.DISCH_DT_TM
+		-- ENCOUNTER.ADMIT_SRC_CD,
+		-- pi_get_cv_display(ENCOUNTER.ADMIT_SRC_CD) AS ADMIT_SRC
+		-- pi_get_cv_display(ENCOUNTER.DISCH_DISPOSITION_CD) AS DISCH_DISPOSITION
+	FROM
+		DIAGNOSIS,
+		ENCOUNTER,
+		NOMENCLATURE,
+		PERSON
+	WHERE
+		ENCOUNTER.ORGANIZATION_ID IN (
+			1, -- Memorial Hermann Hospital
+			-- 5022359, -- Memorial Hermann The Woodlands Hospital
+			5022353, -- Memorial Hermann Southwest Hospital
+			5022335 -- Memorial Hermann Memorial City Hospital
+		)
+		AND ENCOUNTER.REG_DT_TM BETWEEN 
+			pi_to_gmt(
+				TO_DATE(
+					@Prompt('Enter begin date', 'D', , mono, free, persistent, {'01/01/2019 00:00:00'}, User:0), 
+					pi_get_dm_info_char_gen('Date Format Mask|FT','PI EXP|Systems Configuration|Date Format Mask')
+				), 
+				pi_time_zone(1, @Variable('BOUSER'))
+			)
+			AND pi_to_gmt(
+				TO_DATE(
+					@Prompt('Enter end date', 'D', , mono, free, persistent, {'10/01/2024 00:00:00'}, User:1), 
+					pi_get_dm_info_char_gen('Date Format Mask|FT','PI EXP|Systems Configuration|Date Format Mask')
+				) - 1/86400, 
+				pi_time_zone(1, @Variable('BOUSER'))
+			)
+		AND ENCOUNTER.LOC_FACILITY_CD IN (
+			3310, -- HH HERMANN
+			9351014, -- MC Mem City
+			9351114 -- SW Southwest
+			-- 9351127 -- TW The Woodland
+		)
+		-- AND ENCOUNTER.ADMIT_SRC_CD = 9061 -- Emergency Room
+		AND ENCOUNTER.ENCNTR_ID = DIAGNOSIS.ENCNTR_ID
+		AND DIAGNOSIS.DIAG_TYPE_CD = 26244 -- Final
+		-- AND DIAGNOSIS.DIAG_PRIORITY = 1
+		AND DIAGNOSIS.NOMENCLATURE_ID = NOMENCLATURE.NOMENCLATURE_ID
+		AND REGEXP_INSTR(NOMENCLATURE.SOURCE_IDENTIFIER, '^G41.9') > 0
+		AND NOMENCLATURE.SOURCE_VOCABULARY_CD = 641836527 -- ICD-10-CM
+		AND NOMENCLATURE.PRINCIPLE_TYPE_CD = 751 -- Disease or Syndrome
+		AND ENCOUNTER.PERSON_ID = PERSON.PERSON_ID
+		AND TRUNC((TRUNC(pi_from_gmt(ENCOUNTER.REG_DT_TM, 'America/Chicago')) - TRUNC(pi_from_gmt(PERSON.BIRTH_DT_TM, 'America/Chicago'))) / 365.25, 0) >= 18
+), EXCL_ICD AS (
+	SELECT DISTINCT
+		PATIENTS.ENCNTR_ID
+	FROM
+		DIAGNOSIS,
+		NOMENCLATURE,
+		PATIENTS
+	WHERE
+		PATIENTS.ENCNTR_ID = DIAGNOSIS.ENCNTR_ID
+		AND DIAGNOSIS.DIAG_TYPE_CD = 26244 -- Final
+		-- AND DIAGNOSIS.DIAG_PRIORITY = 1
+		AND DIAGNOSIS.NOMENCLATURE_ID = NOMENCLATURE.NOMENCLATURE_ID
+		AND REGEXP_INSTR(NOMENCLATURE.SOURCE_IDENTIFIER, '^G93.82|^I63.9|^I61.9|^I60.9|^S06.6X9A|^I24.9|^I50.9|^S06.9X9A') > 0
+		AND NOMENCLATURE.SOURCE_VOCABULARY_CD = 641836527 -- ICD-10-CM
+		AND NOMENCLATURE.PRINCIPLE_TYPE_CD = 751 -- Disease or Syndrome	
+)
+
+SELECT *
+FROM PATIENTS
+WHERE PATIENTS.ENCNTR_ID NOT IN (SELECT ENCNTR_ID FROM EXCL_ICD)
