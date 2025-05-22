@@ -24,7 +24,12 @@ raw_labs_vitals <- read_excel(paste0(f, "raw/labs_vitals.xlsx")) |>
     rename_all(str_to_lower) |> 
     mutate(across(c(event, result_val), str_to_lower))
 
+raw_labs_asa <- read_excel(paste0(f, "raw/labs_asa.xlsx")) |>
+    rename_all(str_to_lower) |> 
+    mutate(across(c(event, result_val), str_to_lower))
+
 df_labs_vitals <- raw_labs_vitals |> 
+    bind_rows(raw_labs_asa) |>
     filter(!str_detect(result_val, "[a-z]")) |> 
     mutate(
         censor_low = str_detect(result_val, "<"),
@@ -285,6 +290,19 @@ df_vfnow_first <- df_vfnow |>
     distinct(encntr_id, .keep_all = TRUE) |> 
     select(encntr_id, plav_effect_plt = result_val, arrive_plav_effect_hrs)
 
+df_asa_effect <- df_labs_vitals |> 
+    filter(event == "asa effect plt") |> 
+    left_join(df_arrive, by = "encntr_id") |> 
+    mutate(
+        arrive_asa_effect_hrs = difftime(event_datetime, arrive_datetime, units = "hours"),
+        across(arrive_asa_effect_hrs, as.numeric)
+    ) |> 
+    arrange(encntr_id, event_datetime)
+
+df_asa_effect_first <- df_asa_effect |> 
+    distinct(encntr_id, .keep_all = TRUE) |> 
+    select(encntr_id, asa_effect_plt = result_val, arrive_asa_effect_hrs)
+
 l_anticoag_meds <- c(
     "apixaban",
     "enoxaparin",
@@ -445,6 +463,7 @@ data_patients <- raw_demographics |>
     left_join(df_eptif_pts, by = "encntr_id") |> 
     left_join(df_antiplt_start, by = "encntr_id") |> 
     left_join(df_vfnow_first, by = "encntr_id") |> 
+    left_join(df_asa_effect_first, by = "encntr_id") |>
     left_join(df_anticoag_first, by = "encntr_id") |> 
     select(-encntr_id)
 
@@ -473,6 +492,10 @@ data_vfnow <- df_vfnow |>
     # left_join(raw_demographics[c("encntr_id", "fin")], by = "encntr_id") |> 
     select(fin, event_datetime, event:result_units, arrive_plav_effect_hrs)
 
+data_asa_effect <- df_asa_effect |> 
+    # left_join(raw_demographics[c("encntr_id", "fin")], by = "encntr_id") |> 
+    select(fin, event_datetime, event:result_units, arrive_asa_effect_hrs)
+
 data_antihtn <- df_antihtn |> 
     select(encntr_id, medication, antihtn_start_hrs) |> 
     bind_rows(df_antihtn_drip[c("encntr_id", "medication", "antihtn_start_hrs")]) |> 
@@ -489,6 +512,7 @@ l <- list(
     "eptifibatide_drips" = data_eptif_drip,
     "antiplatelet_doses" = data_antiplt,
     "plavix_effect_results" = data_vfnow,
+    "asa_effect_results" = data_asa_effect,
     "anithtn_meds" = data_antihtn
 )
 
