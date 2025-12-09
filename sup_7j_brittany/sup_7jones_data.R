@@ -146,19 +146,37 @@ zzz_routes <- distinct(raw_meds, route) |> arrange(route)
 
 df_meds <- raw_meds |> 
     semi_join(df_dates, by = c("mrn", "encounter_csn")) |> 
-    arrange(mrn, encounter_csn, med_datetime)
+    arrange(mrn, encounter_csn, med_datetime) 
 
 df_sup <- df_meds |> 
     filter(str_detect(medication, "pantoprazole|lansoprazole|esomeprazole|omeprazole|rabeprazole|famotidine|cimetidine")) |> 
-    med_runtime(route, .id = encounter_csn) |> 
+    mutate(
+        route_group = case_when(
+            route == "Intravenous" ~ "iv",
+            route %in% c("Nasogastric", "Oral", "Per G Tube", "Per J Tube") ~ "po"
+        ),
+        med_group = case_when(
+            str_detect(medication, "famotidine") ~ "famotidine",
+            str_detect(medication, "pantoprazole") ~ "pantoprazole",
+            .default = medication
+        )
+    ) |> 
+    med_runtime(route_group, .id = encounter_csn, .med = med_group) |> 
     summarize(
         across(c(num_doses, duration), sum),
         first_dose = first(dose),
         max_dose = max(dose),
         dose_start = first(dose_start),
         dose_stop = last(dose_stop),
-        .by = c(encounter_csn, medication, route, course_count)
+        .by = c(encounter_csn, med_group, route_group, course_count)
     )
+
+df_sup_given <- df_sup |> 
+    select(encounter_csn, med_group, route_group) |> 
+    unite("sup", med_group, route_group) |> 
+    distinct(encounter_csn, sup) |> 
+    mutate(value = TRUE) |> 
+    pivot_wider(names_from = sup, values_from = value, names_sort = TRUE)
 
 incl_routes <- c("Intravenous", "Nasogastric", "Oral", "Per G Tube", "Per J Tube")
 
@@ -236,6 +254,22 @@ df_pressors <- df_meds |>
         freq == "Continuous"
     ) 
 
+df_pressors_admit <- df_pressors |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |> 
+    filter(med_datetime <= admit_datetime + hours(24)) |> 
+    mutate(
+        pressor = case_when(
+            str_detect(medication, "norepinephrine") ~ "norepinephrine",
+            str_detect(medication, "dopamine") ~ "dopamine",
+            str_detect(medication, "epinephrine") ~ "epinephrine"
+        )
+    ) |> 
+    arrange(mrn, encounter_csn, pressor, med_datetime) |> 
+    distinct(mrn, encounter_csn, pressor, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, pressor_admit = pressor, pressor_dose = dose, pressor_dose_unit = dose_unit)
+
+# x <- distinct(df_pressors_admit, medication) |> arrange(medication)
+    
 df_labs <- raw_labs |> 
     inner_join(df_dates, by = "mrn") |> 
     filter(
@@ -243,7 +277,15 @@ df_labs <- raw_labs |>
         lab_datetime <= disch_datetime
     ) |> 
     arrange(mrn, encounter_csn, lab_datetime, lab) |> 
-    mutate(across(lab, str_to_lower))
+    mutate(
+        across(lab, str_to_lower),
+        lab_group = case_when(
+            lab %in% c("fio2 art", "poc a %fio2") ~ "fio2",
+            lab %in% c("po2 art", "poc a po2") ~ "pao2",
+            .default = lab
+        ),
+        across(lab_group, \(x) str_replace_all(x, " ", "_"))
+    )
 
 zzz_labs <- distinct(df_labs, lab) |> arrange(lab)
 
@@ -252,9 +294,9 @@ df_labs_admit <- df_labs |>
         lab_datetime <= admit_datetime + hours(24),
         lab != "c difficile dna"
     ) |> 
-    distinct(mrn, encounter_csn, lab, .keep_all = TRUE) |> 
-    select(mrn, encounter_csn, lab, value) |> 
-    pivot_wider(names_from = lab, values_from = value, names_sort = TRUE, names_prefix = "admit_")
+    distinct(mrn, encounter_csn, lab_group, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, lab_group, value) |> 
+    pivot_wider(names_from = lab_group, values_from = value, names_sort = TRUE, names_glue = "{lab_group}_admit")
 
 df_labs_daily <- df_labs |> 
     filter(lab != "c difficile dna") |> 
@@ -266,9 +308,9 @@ df_labs_daily <- df_labs |>
     ) |> 
     summarize(
         across(value, list(min = min, max = max, first = first), .names = "{.fn}"),
-        .by = c(mrn, encounter_csn, lab, hosp_day)
+        .by = c(mrn, encounter_csn, lab_group, hosp_day)
     ) |> 
-    pivot_wider(names_from = lab, values_from = c(first, min, max), names_glue = "{lab}_{.value}", names_sort = TRUE)
+    pivot_wider(names_from = lab_group, values_from = c(first, min, max), names_glue = "{lab_group}_{.value}", names_sort = TRUE)
 
 df_bp_daily <- raw_flow_bp |> 
     inner_join(df_dates, by = c("mrn", "encounter_csn")) |> 
@@ -297,6 +339,19 @@ df_map_daily <- raw_flow_map |>
     ) |> 
     summarize(
         across(map, list(min = min, max = max)),
+        .by = c(mrn, encounter_csn, hosp_day)
+    ) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+df_fio2_daily <- raw_flow_fio2 |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |>
+    mutate(
+        hosp_day = difftime(taken_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(fio2, list(min = min, max = max)),
         .by = c(mrn, encounter_csn, hosp_day)
     ) |> 
     arrange(mrn, encounter_csn, hosp_day)
@@ -365,3 +420,35 @@ df_weight_admit <- raw_flow_weight |>
     arrange(mrn, encounter_csn, taken_datetime) |> 
     distinct(mrn, encounter_csn, .keep_all = TRUE) |> 
     select(mrn, encounter_csn, weight_kg)
+
+df_icu_los <- raw_icu_los |> 
+    inner_join(df_dates, by = "mrn") |> 
+    filter(nurse_unit == "TMC JONES 7 ELECTIVE NEURO ICU") |> 
+    arrange(mrn, admit_datetime, icu_start_datetime) |> 
+    summarize(
+        across(icu_los, sum),
+        .by = c(mrn, encounter_csn)
+    )
+
+data_patients <- df_patients |> 
+    left_join(df_icu_los, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_weight_admit, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_sup_given, by = "encounter_csn") |> 
+    left_join(df_labs_admit, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_pressors_admit, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_labs_cdiff, by = c("mrn", "encounter_csn")) 
+
+data_labs_daily <- df_labs_daily
+
+data_vitals_daily <- df_bp_daily |> 
+    full_join(df_map_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_hr_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_fio2_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_rr_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_temp_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_gcs_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+data_sup <- df_sup |> 
+    inner_join(df_patients[c("mrn", "encounter_csn")], by = "encounter_csn") |> 
+    select(mrn, encounter_csn, everything())
