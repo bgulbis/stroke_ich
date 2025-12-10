@@ -146,111 +146,167 @@ zzz_routes <- distinct(raw_meds, route) |> arrange(route)
 
 df_meds <- raw_meds |> 
     semi_join(df_dates, by = c("mrn", "encounter_csn")) |> 
-    arrange(mrn, encounter_csn, med_datetime) 
-
-df_sup <- df_meds |> 
-    filter(str_detect(medication, "pantoprazole|lansoprazole|esomeprazole|omeprazole|rabeprazole|famotidine|cimetidine")) |> 
+    arrange(mrn, encounter_csn, med_datetime) |> 
     mutate(
+        across(
+            medication, \(x) case_when(
+                str_detect(medication, "argatroban") ~ "argatroban",
+                str_detect(medication, "bivalirudin") ~ "bivalirudin",
+                str_detect(medication, "cangrelor") ~ "cangrelor",
+                str_detect(medication, "clopidogrel") ~ "clopidogrel",
+                str_detect(medication, "dabigatran") ~ "dabigatran",
+                str_detect(medication, "dexamethasone") ~ "dexamethasone",
+                str_detect(medication, "dobutamine") ~ "dobutamine",
+                str_detect(medication, "dopamine") ~ "dopamine",
+                str_detect(medication, "norepinephrine") ~ "norepinephrine",
+                str_detect(medication, "epinephrine") ~ "epinephrine",
+                str_detect(medication, "hydrocortisone") ~ "hydrocortisone",
+                str_detect(medication, "diclofenac") ~ "diclofenac",
+                str_detect(medication, "enoxaparin") ~ "enoxaparin",
+                str_detect(medication, "famotidine") ~ "famotidine",
+                str_detect(medication, "heparin") ~ "heparin",
+                str_detect(medication, "ibuprofen") ~ "ibuprofen",
+                str_detect(medication, "ketorolac") ~ "ketorolac",
+                str_detect(medication, "methylprednisolone") ~ "methylprednisolone",
+                str_detect(medication, "naproxen") ~ "naproxen",
+                str_detect(medication, "pantoprazole") ~ "pantoprazole",
+                str_detect(medication, "prednisone") ~ "prednisone",
+                str_detect(medication, "warfarin ") ~ "warfarin",
+                .default = medication
+                
+            )
+        ),
         route_group = case_when(
             route == "Intravenous" ~ "iv",
-            route %in% c("Nasogastric", "Oral", "Per G Tube", "Per J Tube") ~ "po"
-        ),
-        med_group = case_when(
-            str_detect(medication, "famotidine") ~ "famotidine",
-            str_detect(medication, "pantoprazole") ~ "pantoprazole",
-            .default = medication
+            route == "Subcutaneous" ~ "subq",
+            route %in% c("Nasogastric", "Oral", "Per G Tube", "Per J Tube") ~ "po",
+            .default = route
         )
-    ) |> 
-    med_runtime(route_group, .id = encounter_csn, .med = med_group) |> 
+    )
+
+df_sup <- df_meds |> 
+    filter(medication %in% c("pantoprazole", "lansoprazole", "famotidine")) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
     summarize(
         across(c(num_doses, duration), sum),
         first_dose = first(dose),
         max_dose = max(dose),
         dose_start = first(dose_start),
         dose_stop = last(dose_stop),
-        .by = c(encounter_csn, med_group, route_group, course_count)
+        .by = c(encounter_csn, medication, route_group, course_count)
     )
 
 df_sup_given <- df_sup |> 
-    select(encounter_csn, med_group, route_group) |> 
-    unite("sup", med_group, route_group) |> 
-    distinct(encounter_csn, sup) |> 
-    mutate(value = TRUE) |> 
-    pivot_wider(names_from = sup, values_from = value, names_sort = TRUE)
+    inner_join(df_dates, by = "encounter_csn") |> 
+    mutate(
+        hosp_day_start = difftime(dose_start, admit_datetime, units = "days"),
+        across(hosp_day_start, as.numeric),
+        across(hosp_day_start, floor)
+    ) |> 
+    unite("sup", medication, route_group) |> 
+    arrange(encounter_csn, dose_start) |> 
+    distinct(encounter_csn, sup, .keep_all = TRUE) |> 
+    select(encounter_csn, sup, hosp_day_start) |> 
+    pivot_wider(names_from = sup, values_from = hosp_day_start, names_sort = TRUE)
 
-incl_routes <- c("Intravenous", "Nasogastric", "Oral", "Per G Tube", "Per J Tube")
+# incl_routes <- c("Intravenous", "Nasogastric", "Oral", "Per G Tube", "Per J Tube")
 
 df_meds_steroids <- df_meds |> 
     filter(
-        str_detect(medication, "dexamethasone|hydrocortisone|methylprednisolone|prednisone"),
-        route %in% incl_routes
+        medication %in% c("dexamethasone", "hydrocortisone", "methylprednisolone", "prednisone"),
+        route_group %in% c("iv", "po")
     ) |> 
-    med_runtime(route, .id = encounter_csn) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
     summarize(
         across(c(num_doses, duration), sum),
         first_dose = first(dose),
         max_dose = max(dose),
         dose_start = first(dose_start),
         dose_stop = last(dose_stop),
-        .by = c(encounter_csn, medication, route, course_count)
+        .by = c(encounter_csn, medication, route_group, course_count)
     )
 
 df_meds_nsaids <- df_meds |> 
     filter(
-        str_detect(medication, "ibuprofen|diclofenac|ketorolac|meloxicam|naproxen"),
-        route %in% incl_routes
+        medication %in% c("ibuprofen", "diclofenac", "ketorolac", "meloxicam", "naproxen"),
+        route_group %in% c("iv", "po")
     ) |> 
-    med_runtime(route, .id = encounter_csn) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
     summarize(
         across(c(num_doses, duration), sum),
         first_dose = first(dose),
         max_dose = max(dose),
         dose_start = first(dose_start),
         dose_stop = last(dose_stop),
-        .by = c(encounter_csn, medication, route, course_count)
+        .by = c(encounter_csn, medication, route_group, course_count)
     )
 
 df_meds_antiplt <- df_meds |> 
     filter(
-        str_detect(medication, "aspirin|clopidogrel|ticagrelor"),
-        route %in% incl_routes
+        medication %in% c("aspirin", "clopidogrel", "ticagrelor"),
+        route_group %in% c("iv", "po")
     ) |> 
-    med_runtime(route, .id = encounter_csn) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
     summarize(
         across(c(num_doses, duration), sum),
         first_dose = first(dose),
         max_dose = max(dose),
         dose_start = first(dose_start),
         dose_stop = last(dose_stop),
-        .by = c(encounter_csn, medication, route, course_count)
+        .by = c(encounter_csn, medication, route_group, course_count)
     )
 
 df_meds_anticoag <- df_meds |> 
     filter(
-        (str_detect(medication, "apixaban|dabigatran|rivaroxaban|warfarin") & route %in% incl_routes) |
-            (str_detect(medication, "enoxaparin") & dose > 40) 
+        (medication %in% c("apixaban", "dabigatran", "rivaroxaban", "warfarin")) |
+            (medication == "enoxaparin" & dose > 40)
     ) |> 
-    med_runtime(route, .id = encounter_csn) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
     summarize(
         across(c(num_doses, duration), sum),
         first_dose = first(dose),
         max_dose = max(dose),
         dose_start = first(dose_start),
         dose_stop = last(dose_stop),
-        .by = c(encounter_csn, medication, route, course_count)
+        .by = c(encounter_csn, medication, route_group, course_count)
     )
+
+df_meds_other <- df_meds_anticoag |> 
+    bind_rows(df_meds_antiplt, df_meds_nsaids, df_meds_steroids) |> 
+    inner_join(df_dates, by = "encounter_csn") |> 
+    mutate(
+        hosp_day_start = difftime(dose_start, admit_datetime, units = "days"),
+        across(hosp_day_start, as.numeric),
+        across(hosp_day_start, floor)
+    ) |> 
+    arrange(encounter_csn, dose_start) |> 
+    distinct(encounter_csn, medication, .keep_all = TRUE) |> 
+    select(encounter_csn, medication, hosp_day_start) |> 
+    pivot_wider(names_from = medication, values_from = hosp_day_start, names_sort = TRUE)
 
 df_drips <- df_meds |> 
     filter(
-        str_detect(medication, "argatroban|bivalirudin|cangrelor|heparin"),
-        route == "Intravenous",
+        medication %in% c("argatroban", "bivalirudin", "cangrelor", "heparin"),
+        route_group == "iv",
         freq == "Continuous"
     ) 
 
+df_drips_start <- df_drips |> 
+    inner_join(df_dates, by = "encounter_csn") |> 
+    mutate(
+        hosp_day_start = difftime(med_datetime, admit_datetime, units = "days"),
+        across(hosp_day_start, as.numeric),
+        across(hosp_day_start, floor)
+    ) |> 
+    arrange(encounter_csn, med_datetime) |> 
+    distinct(encounter_csn, medication, .keep_all = TRUE) |> 
+    select(encounter_csn, medication, hosp_day_start) |> 
+    pivot_wider(names_from = medication, values_from = hosp_day_start, names_sort = TRUE)
+
 df_pressors <- df_meds |> 
     filter(
-        str_detect(medication, "dobutamine|dopamine|epinephrine|norepinephrine"),
-        route == "Intravenous",
+        medication %in% c("dobutamine", "dopamine", "epinephrine", "norepinephrine"),
+        route_group == "iv",
         freq == "Continuous"
     ) 
 
@@ -436,8 +492,10 @@ data_patients <- df_patients |>
     left_join(df_sup_given, by = "encounter_csn") |> 
     left_join(df_labs_admit, by = c("mrn", "encounter_csn")) |> 
     left_join(df_pressors_admit, by = c("mrn", "encounter_csn")) |> 
-    left_join(df_labs_cdiff, by = c("mrn", "encounter_csn")) 
-
+    left_join(df_labs_cdiff, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_meds_other, by = "encounter_csn") |> 
+    left_join(df_drips_start, by = "encounter_csn") 
+    
 data_labs_daily <- df_labs_daily
 
 data_vitals_daily <- df_bp_daily |> 
@@ -451,4 +509,24 @@ data_vitals_daily <- df_bp_daily |>
 
 data_sup <- df_sup |> 
     inner_join(df_patients[c("mrn", "encounter_csn")], by = "encounter_csn") |> 
-    select(mrn, encounter_csn, everything())
+    select(mrn, encounter_csn, everything()) |> 
+    arrange(mrn, encounter_csn, dose_start, medication)
+
+data_meds <- df_meds_anticoag |> 
+    bind_rows(df_meds_antiplt, df_meds_nsaids, df_meds_steroids) |> 
+    inner_join(df_patients[c("mrn", "encounter_csn")], by = "encounter_csn") |> 
+    select(mrn, encounter_csn, everything()) |> 
+    arrange(mrn, encounter_csn, dose_start, medication)
+
+data_drips <- df_drips
+
+l <- list(
+    "patients" = data_patients,
+    "labs_daily" = data_labs_daily,
+    "vitals_daily" = data_vitals_daily,
+    "sup_doses" = data_sup,
+    "other_meds" = data_meds,
+    "anticoag_drips" = data_drips
+)
+
+write.xlsx(l, paste0(f, "final/sup_7jones_data.xlsx"), overwrite = TRUE)
