@@ -23,13 +23,6 @@ raw_demog <- read_excel(
 raw_meds <- read_excel(
     paste0(f, "raw/meds.xlsx"), 
     skip = 11, 
-    col_names = c("range_start", "range_end", "mrn", "op_meds")
-) |> 
-    rename_all(str_to_lower)
-
-raw_meds <- read_excel(
-    paste0(f, "raw/meds.xlsx"), 
-    skip = 11, 
     col_names = c("range_start", "range_end", "mrn", "encounter_csn", "order_id", "med_datetime", "medication", 
                   "order_name", "dose", "dose_unit", "route", "freq", "action", "nurse_unit")
 ) |> 
@@ -288,7 +281,7 @@ df_culture_pos_pt <- df_culture_pos |>
         across(lab, str_to_lower),
         across(lab, \(x) str_replace_all(x, " ", "_"))
     ) |> 
-    pivot_wider(names_from = lab, values_from = value)
+    pivot_wider(names_from = lab, values_from = value, names_prefix = "positive_")
 
 df_gcs <- raw_gcs |> 
     arrange(mrn, encounter_csn, taken_datetime) |> 
