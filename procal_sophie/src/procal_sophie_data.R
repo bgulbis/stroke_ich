@@ -161,6 +161,17 @@ df_procal <- df_labs |>
     ) |> 
     select(mrn, encounter_csn, hosp_day, order_datetime, collect_datetime = lab_datetime, procal = value, nurse_unit)
 
+df_procal_first <- df_procal |> 
+    arrange(mrn, encounter_csn, collect_datetime) |> 
+    summarize(
+        num_procal = n(),
+        procal_hosp_day = first(hosp_day),
+        first_procal = first(procal),
+        .by = c(mrn, encounter_csn)
+    ) |> 
+    mutate(procal_checked = TRUE) |> 
+    select(mrn, encounter_csn, procal_checked, procal_hosp_day, first_procal, num_procal)
+
 df_wbc <- df_labs |> 
     filter(lab == "WBC") |> 
     mutate(across(value, as.numeric)) |> 
@@ -168,6 +179,20 @@ df_wbc <- df_labs |>
         wbc_max = max(value, na.rm = TRUE),
         .by = c(mrn, encounter_csn, hosp_day)
     )
+
+df_wbc_max <- df_labs |> 
+    filter(lab == "WBC") |> 
+    mutate(across(value, as.numeric)) |> 
+    arrange(mrn, encounter_csn, desc(value)) |> 
+    distinct(mrn, encounter_csn, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, max_wbc = value, max_wbc_day = hosp_day)
+
+df_wbc_min <- df_labs |> 
+    filter(lab == "WBC") |> 
+    mutate(across(value, as.numeric)) |> 
+    arrange(mrn, encounter_csn, value) |> 
+    distinct(mrn, encounter_csn, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, min_wbc = value, min_wbc_day = hosp_day)
 
 df_scr_baseline <- df_labs |> 
     filter(lab == "Creatinine Lvl") |> 
@@ -254,6 +279,17 @@ df_abx <- df_meds |>
     ) |> 
     select(mrn, encounter_csn, medication, start_hosp_day, stop_hosp_day, dose_start, dose_stop, duration)
 
+df_abx_first <- df_abx |> 
+    filter(duration > 0) |> 
+    arrange(mrn, encounter_csn, dose_start) |> 
+    summarize(
+        num_abx = n(),
+        abx_start_day = first(start_hosp_day),
+        .by = c(mrn, encounter_csn)
+    ) |> 
+    mutate(abx_started = TRUE) |> 
+    select(mrn, encounter_csn, abx_started, everything())
+
 df_cultures <- raw_cultures |> 
     inner_join(df_dates, by = "mrn", relationship = "many-to-many") |> 
     mutate(
@@ -320,6 +356,10 @@ joinby <- join_by("mrn", "encounter_csn")
 data_patients <- raw_demog |> 
     select(-length_stay) |> 
     left_join(df_icu_los, by = "mrn") |> 
+    left_join(df_procal_first, by = joinby) |> 
+    left_join(df_abx_first, by = joinby) |> 
+    left_join(df_wbc_max, by = joinby) |> 
+    left_join(df_wbc_min, by = joinby) |> 
     left_join(df_vent, by = joinby) |> 
     left_join(df_pressors, by = joinby) |> 
     left_join(df_gcs, by = joinby) |> 
@@ -327,7 +367,8 @@ data_patients <- raw_demog |>
     left_join(df_csf, by = joinby) |> 
     left_join(df_scr_baseline, by = joinby) |> 
     left_join(df_dialysis, by = joinby) |> 
-    left_join(df_culture_pos_pt, by = joinby)
+    left_join(df_culture_pos_pt, by = joinby) |> 
+    mutate(across(c(procal_checked, abx_started), \(x) coalesce(x, FALSE)))
 
 data_daily <- df_wbc |>
     full_join(df_temps, by = c("mrn", "encounter_csn", "hosp_day")) |> 
