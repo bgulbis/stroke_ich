@@ -24,7 +24,7 @@ raw_meds <- read_excel(
     paste0(f, "raw/meds.xlsx"), 
     skip = 11, 
     col_names = c("range_start", "range_end", "mrn", "encounter_csn", "order_id", "med_datetime", "medication", 
-                  "order_name", "dose", "dose_unit", "route", "freq", "action", "nurse_unit")
+                  "order_name", "dose", "dose_unit", "route", "freq", "action", "nurse_unit", "pharm_class", "therap_class")
 ) |> 
     rename_all(str_to_lower) |> 
     mutate(across(medication, str_to_lower)) |> 
@@ -50,7 +50,7 @@ raw_cultures <- read_excel(
 raw_icu_los <- read_excel(
     paste0(f, "raw/icu_stay.xlsx"), 
     skip = 11, 
-    col_names = c("range_start", "range_end", "mrn", "nurse_unit", "icu_stop_datetime", "icu_start_datetime", "icu_los", "vent_days")
+    col_names = c("range_start", "range_end", "mrn", "nurse_unit", "icu_stop_datetime", "icu_start_datetime", "icu_los")
 ) |> 
     rename_all(str_to_lower) |> 
     select(mrn, nurse_unit, icu_start_datetime, everything(), -range_start, -range_end) |> 
@@ -104,11 +104,11 @@ raw_csf <- read_excel(
 raw_dialysis <- read_excel(
     paste0(f, "raw/dialysis.xlsx"), 
     skip = 11, 
-    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "value", "date_value", "nurse_unit")
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "value", "nurse_unit")
 ) |> 
     rename_all(str_to_lower) |> 
     mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
-    select(-range_start, -range_end, -taken_date, -taken_time, -date_value)
+    select(-range_start, -range_end, -taken_date, -taken_time)
 
 raw_procedures <- read_excel(
     paste0(f, "raw/procedures.xlsx"), 
@@ -125,17 +125,18 @@ df_dates <- raw_demog |>
         disch_date = floor_date(disch_datetime, unit = "day")
     )
 
-df_7jones <- raw_icu_los |>
-    separate_longer_delim(vent_days, "\r\n") |> 
-    mutate(across(vent_days, as.numeric)) |> 
-    summarize(
-        across(vent_days, sum),
-        .by = c(mrn, nurse_unit, icu_start_datetime, icu_stop_datetime, icu_los)
-    ) |> 
-    add_count(mrn, name = "num_icu")
+# df_icu <- raw_icu_los |>
+    # separate_longer_delim(vent_days, "\r\n") |> 
+    # mutate(across(vent_days, as.numeric)) |> 
+    # summarize(
+    #     across(icu_los, sum),
+    #     .by = c(mrn
+    # ) |> 
+    # add_count(mrn, name = "num_icu")
 
-df_icu_los <- df_7jones |> 
+df_icu_los <- raw_icu_los |> 
     summarize(
+        icu = first(nurse_unit),
         across(icu_los, sum),
         .by = mrn
     )
@@ -381,4 +382,4 @@ l <- list(
     "daily_vals" = data_daily
 )
 
-write.xlsx(l, paste0(f, c("final/procal_data.xlsx")), overwrite = TRUE)
+write.xlsx(l, paste0(f, c("final/procal_data_mult_icu.xlsx")), overwrite = TRUE)
