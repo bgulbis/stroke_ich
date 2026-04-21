@@ -1,0 +1,556 @@
+library(tidyverse)
+library(readxl)
+library(mbohelpr)
+library(openxlsx)
+
+f <- set_data_path("stroke_ich", "sup_7j_brittany")
+
+raw_demog <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "demographics",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "age", "sex", "race", "ethnicity", 
+                  "admit_date", "admit_time", "disch_date", "disch_time", "los", "diag_primary", "diag_poa")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(
+        admit_datetime = ymd_hms(paste(admit_date, admit_time)),
+        disch_datetime = ymd_hms(paste(disch_date, disch_time)),
+        length_stay = difftime(disch_datetime, admit_datetime, units = "days"),
+        across(length_stay, as.numeric)
+    )|> 
+    select(-range_start, -range_end, -admit_date, -admit_time, -disch_date, -disch_time)
+
+raw_op_meds <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "op_meds",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "op_meds")
+) |> 
+    rename_all(str_to_lower)
+
+raw_meds <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "^meds",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "order_id", "med_datetime", "medication", 
+                  "order_name", "dose", "dose_unit", "route", "freq", "action", "nurse_unit")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(across(medication, str_to_lower)) |> 
+    select(-range_start, -range_end)
+
+raw_labs <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "labs",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "lab_datetime", "lab", "value", "value_unit", "nurse_unit")
+) |> 
+    rename_all(str_to_lower) |> 
+    select(-range_start, -range_end)
+
+raw_icu_los <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "icu_los",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "nurse_unit", "icu_start_datetime", "icu_stop_datetime", "icu_los")
+) |> 
+    rename_all(str_to_lower) |> 
+    select(-range_start, -range_end)
+
+raw_flow_bp <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_bp",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "bp", "sbp", "dbp")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+raw_flow_fio2 <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_fio2",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "fio2")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+raw_flow_gcs <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_gcs",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "gcs")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+raw_flow_hr <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_hr",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "hr")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+raw_flow_map <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_map",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "map")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+raw_flow_rr <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_rr",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "rr")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+raw_flow_temp <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_temp",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "temp_c", "temp_f")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+raw_flow_vent <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_vent",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "vent")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+raw_flow_weight <- get_xlsx_data(
+    path = paste0(f, "raw/"), 
+    pattern = "flowsheet_weight",
+    skip = 11, 
+    col_names = c("range_start", "range_end", "mrn", "encounter_csn", "taken_date", "taken_time", "event", "weight_kg")
+) |> 
+    rename_all(str_to_lower) |> 
+    mutate(taken_datetime = ymd_hm(paste(taken_date, taken_time)))|> 
+    select(-range_start, -range_end, -taken_date, -taken_time)
+
+df_op_meds <- raw_op_meds |> 
+    distinct(mrn) |> 
+    mutate(op_sup = TRUE)
+
+raw_orig_data <- read_excel(paste0(f, "final/sup_7jones_data.xlsx")) |> 
+    select(mrn, encounter_csn) |> 
+    mutate(orig_pt = TRUE)
+
+df_patients <- raw_demog |> 
+    left_join(df_op_meds, by = "mrn") |> 
+    arrange(mrn, admit_datetime) |> 
+    distinct(mrn, .keep_all = TRUE) |> 
+    left_join(raw_orig_data, by = c("mrn", "encounter_csn")) |> 
+    select(mrn, encounter_csn, orig_pt, op_sup, everything())
+    
+df_dates <- select(df_patients, mrn, encounter_csn, admit_datetime, disch_datetime)
+
+zzz_meds <- distinct(raw_meds, medication) |> arrange(medication)
+zzz_routes <- distinct(raw_meds, route) |> arrange(route)
+
+df_meds <- raw_meds |> 
+    semi_join(df_dates, by = c("mrn", "encounter_csn")) |> 
+    arrange(mrn, encounter_csn, med_datetime) |> 
+    mutate(
+        across(
+            medication, \(x) case_when(
+                str_detect(medication, "argatroban") ~ "argatroban",
+                str_detect(medication, "bivalirudin") ~ "bivalirudin",
+                str_detect(medication, "cangrelor") ~ "cangrelor",
+                str_detect(medication, "clopidogrel") ~ "clopidogrel",
+                str_detect(medication, "dabigatran") ~ "dabigatran",
+                str_detect(medication, "dexamethasone") ~ "dexamethasone",
+                str_detect(medication, "dobutamine") ~ "dobutamine",
+                str_detect(medication, "dopamine") ~ "dopamine",
+                str_detect(medication, "norepinephrine") ~ "norepinephrine",
+                str_detect(medication, "epinephrine") ~ "epinephrine",
+                str_detect(medication, "hydrocortisone") ~ "hydrocortisone",
+                str_detect(medication, "diclofenac") ~ "diclofenac",
+                str_detect(medication, "enoxaparin") ~ "enoxaparin",
+                str_detect(medication, "famotidine") ~ "famotidine",
+                str_detect(medication, "heparin") ~ "heparin",
+                str_detect(medication, "ibuprofen") ~ "ibuprofen",
+                str_detect(medication, "ketorolac") ~ "ketorolac",
+                str_detect(medication, "methylprednisolone") ~ "methylprednisolone",
+                str_detect(medication, "naproxen") ~ "naproxen",
+                str_detect(medication, "pantoprazole") ~ "pantoprazole",
+                str_detect(medication, "prednisone") ~ "prednisone",
+                str_detect(medication, "warfarin ") ~ "warfarin",
+                .default = medication
+                
+            )
+        ),
+        route_group = case_when(
+            route == "Intravenous" ~ "iv",
+            route == "Subcutaneous" ~ "subq",
+            route %in% c("Nasogastric", "Oral", "Per G Tube", "Per J Tube") ~ "po",
+            .default = route
+        )
+    )
+
+df_sup <- df_meds |> 
+    filter(medication %in% c("pantoprazole", "lansoprazole", "famotidine")) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        first_dose = first(dose),
+        max_dose = max(dose),
+        dose_start = first(dose_start),
+        dose_stop = last(dose_stop),
+        .by = c(encounter_csn, medication, route_group, course_count)
+    )
+
+df_sup_given <- df_sup |> 
+    inner_join(df_dates, by = "encounter_csn") |> 
+    mutate(
+        hosp_day_start = difftime(dose_start, admit_datetime, units = "days"),
+        across(hosp_day_start, as.numeric),
+        across(hosp_day_start, floor)
+    ) |> 
+    unite("sup", medication, route_group) |> 
+    arrange(encounter_csn, dose_start) |> 
+    distinct(encounter_csn, sup, .keep_all = TRUE) |> 
+    select(encounter_csn, sup, hosp_day_start) |> 
+    pivot_wider(names_from = sup, values_from = hosp_day_start, names_sort = TRUE)
+
+# incl_routes <- c("Intravenous", "Nasogastric", "Oral", "Per G Tube", "Per J Tube")
+
+df_meds_steroids <- df_meds |> 
+    filter(
+        medication %in% c("dexamethasone", "hydrocortisone", "methylprednisolone", "prednisone"),
+        route_group %in% c("iv", "po")
+    ) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        first_dose = first(dose),
+        max_dose = max(dose),
+        dose_start = first(dose_start),
+        dose_stop = last(dose_stop),
+        .by = c(encounter_csn, medication, route_group, course_count)
+    )
+
+df_meds_nsaids <- df_meds |> 
+    filter(
+        medication %in% c("ibuprofen", "diclofenac", "ketorolac", "meloxicam", "naproxen"),
+        route_group %in% c("iv", "po")
+    ) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        first_dose = first(dose),
+        max_dose = max(dose),
+        dose_start = first(dose_start),
+        dose_stop = last(dose_stop),
+        .by = c(encounter_csn, medication, route_group, course_count)
+    )
+
+df_meds_antiplt <- df_meds |> 
+    filter(
+        medication %in% c("aspirin", "clopidogrel", "ticagrelor"),
+        route_group %in% c("iv", "po")
+    ) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        first_dose = first(dose),
+        max_dose = max(dose),
+        dose_start = first(dose_start),
+        dose_stop = last(dose_stop),
+        .by = c(encounter_csn, medication, route_group, course_count)
+    )
+
+df_meds_anticoag <- df_meds |> 
+    filter(
+        (medication %in% c("apixaban", "dabigatran", "rivaroxaban", "warfarin")) |
+            (medication == "enoxaparin" & dose > 40)
+    ) |> 
+    med_runtime(route_group, .id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        first_dose = first(dose),
+        max_dose = max(dose),
+        dose_start = first(dose_start),
+        dose_stop = last(dose_stop),
+        .by = c(encounter_csn, medication, route_group, course_count)
+    )
+
+df_meds_other <- df_meds_anticoag |> 
+    bind_rows(df_meds_antiplt, df_meds_nsaids, df_meds_steroids) |> 
+    inner_join(df_dates, by = "encounter_csn") |> 
+    mutate(
+        hosp_day_start = difftime(dose_start, admit_datetime, units = "days"),
+        across(hosp_day_start, as.numeric),
+        across(hosp_day_start, floor)
+    ) |> 
+    arrange(encounter_csn, dose_start) |> 
+    distinct(encounter_csn, medication, .keep_all = TRUE) |> 
+    select(encounter_csn, medication, hosp_day_start) |> 
+    pivot_wider(names_from = medication, values_from = hosp_day_start, names_sort = TRUE)
+
+df_drips <- df_meds |> 
+    filter(
+        medication %in% c("argatroban", "bivalirudin", "cangrelor", "heparin"),
+        route_group == "iv",
+        freq == "Continuous"
+    ) 
+
+df_drips_start <- df_drips |> 
+    inner_join(df_dates, by = "encounter_csn") |> 
+    mutate(
+        hosp_day_start = difftime(med_datetime, admit_datetime, units = "days"),
+        across(hosp_day_start, as.numeric),
+        across(hosp_day_start, floor)
+    ) |> 
+    arrange(encounter_csn, med_datetime) |> 
+    distinct(encounter_csn, medication, .keep_all = TRUE) |> 
+    select(encounter_csn, medication, hosp_day_start) |> 
+    pivot_wider(names_from = medication, values_from = hosp_day_start, names_sort = TRUE)
+
+df_pressors <- df_meds |> 
+    filter(
+        medication %in% c("dobutamine", "dopamine", "epinephrine", "norepinephrine"),
+        route_group == "iv",
+        freq == "Continuous"
+    ) 
+
+df_pressors_admit <- df_pressors |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |> 
+    filter(med_datetime <= admit_datetime + hours(24)) |> 
+    mutate(
+        pressor = case_when(
+            str_detect(medication, "norepinephrine") ~ "norepinephrine",
+            str_detect(medication, "dopamine") ~ "dopamine",
+            str_detect(medication, "epinephrine") ~ "epinephrine"
+        )
+    ) |> 
+    arrange(mrn, encounter_csn, pressor, med_datetime) |> 
+    distinct(mrn, encounter_csn, pressor, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, pressor_admit = pressor, pressor_dose = dose, pressor_dose_unit = dose_unit)
+
+# x <- distinct(df_pressors_admit, medication) |> arrange(medication)
+    
+df_labs <- raw_labs |> 
+    inner_join(df_dates, by = "mrn") |> 
+    filter(
+        lab_datetime >= admit_datetime,
+        lab_datetime <= disch_datetime
+    ) |> 
+    arrange(mrn, encounter_csn, lab_datetime, lab) |> 
+    mutate(
+        across(lab, str_to_lower),
+        lab_group = case_when(
+            lab %in% c("fio2 art", "poc a %fio2") ~ "fio2",
+            lab %in% c("po2 art", "poc a po2") ~ "pao2",
+            .default = lab
+        ),
+        across(lab_group, \(x) str_replace_all(x, " ", "_"))
+    )
+
+zzz_labs <- distinct(df_labs, lab) |> arrange(lab)
+
+df_labs_admit <- df_labs |> 
+    filter(
+        lab_datetime <= admit_datetime + hours(24),
+        lab != "c difficile dna"
+    ) |> 
+    distinct(mrn, encounter_csn, lab_group, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, lab_group, value) |> 
+    pivot_wider(names_from = lab_group, values_from = value, names_sort = TRUE, names_glue = "{lab_group}_admit")
+
+df_labs_daily <- df_labs |> 
+    filter(lab != "c difficile dna") |> 
+    mutate(
+        # lab_date = floor_date(lab_datetime, unit = "days"),
+        hosp_day = difftime(lab_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(value, list(min = min, max = max, first = first), .names = "{.fn}"),
+        .by = c(mrn, encounter_csn, lab_group, hosp_day)
+    ) |> 
+    pivot_wider(names_from = lab_group, values_from = c(first, min, max), names_glue = "{lab_group}_{.value}", names_sort = TRUE)
+
+df_bp_daily <- raw_flow_bp |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |> 
+    mutate(
+        hosp_day = difftime(taken_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(c(sbp, dbp), list(min = min, max = max)),
+        .by = c(mrn, encounter_csn, hosp_day)
+    ) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+df_map_admit <- raw_flow_map |> 
+    arrange(mrn, encounter_csn, taken_datetime) |> 
+    distinct(mrn, encounter_csn, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, map_admit = map)
+
+df_map_daily <- raw_flow_map |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |>
+    mutate(
+        hosp_day = difftime(taken_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(map, list(min = min, max = max)),
+        .by = c(mrn, encounter_csn, hosp_day)
+    ) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+df_fio2_daily <- raw_flow_fio2 |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |>
+    mutate(
+        hosp_day = difftime(taken_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(fio2, list(min = min, max = max)),
+        .by = c(mrn, encounter_csn, hosp_day)
+    ) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+df_hr_daily <- raw_flow_hr |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |>
+    mutate(
+        hosp_day = difftime(taken_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(hr, list(min = min, max = max)),
+        .by = c(mrn, encounter_csn, hosp_day)
+    ) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+df_rr_daily <- raw_flow_rr |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |>
+    mutate(
+        hosp_day = difftime(taken_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(rr, list(min = min, max = max)),
+        .by = c(mrn, encounter_csn, hosp_day)
+    ) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+df_temp_daily <- raw_flow_temp |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |>
+    mutate(
+        hosp_day = difftime(taken_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(temp_c, list(min = min, max = max)),
+        .by = c(mrn, encounter_csn, hosp_day)
+    ) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+df_gcs_daily <- raw_flow_gcs |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |>
+    arrange(mrn, encounter_csn, taken_datetime) |> 
+    mutate(
+        hosp_day = difftime(taken_datetime, admit_datetime, units = "day"),
+        across(hosp_day, as.numeric),
+        across(hosp_day, floor)
+    ) |> 
+    summarize(
+        across(gcs, first),
+        .by = c(mrn, encounter_csn, hosp_day)
+    ) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+df_labs_cdiff <- df_labs |> 
+    filter(lab == "c difficile dna") |> 
+    arrange(mrn, encounter_csn, desc(value)) |> 
+    distinct(mrn, encounter_csn, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, cdiff = value)
+
+df_weight_admit <- raw_flow_weight |> 
+    inner_join(df_dates, by = c("mrn", "encounter_csn")) |>
+    arrange(mrn, encounter_csn, taken_datetime) |> 
+    distinct(mrn, encounter_csn, .keep_all = TRUE) |> 
+    select(mrn, encounter_csn, weight_kg)
+
+df_icu_los <- raw_icu_los |> 
+    inner_join(df_dates, by = "mrn") |> 
+    filter(nurse_unit == "TMC JONES 7 ELECTIVE NEURO ICU") |> 
+    arrange(mrn, admit_datetime, icu_start_datetime) |> 
+    summarize(
+        across(icu_los, sum),
+        .by = c(mrn, encounter_csn)
+    )
+
+data_patients <- df_patients |> 
+    left_join(df_icu_los, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_weight_admit, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_sup_given, by = "encounter_csn") |> 
+    left_join(df_labs_admit, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_pressors_admit, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_labs_cdiff, by = c("mrn", "encounter_csn")) |> 
+    left_join(df_meds_other, by = "encounter_csn") |> 
+    left_join(df_drips_start, by = "encounter_csn") 
+    
+data_labs_daily <- df_labs_daily
+
+data_vitals_daily <- df_bp_daily |> 
+    full_join(df_map_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_hr_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_fio2_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_rr_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_temp_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    full_join(df_gcs_daily, by = c("mrn", "encounter_csn", "hosp_day")) |> 
+    arrange(mrn, encounter_csn, hosp_day)
+
+data_sup <- df_sup |> 
+    inner_join(df_patients[c("mrn", "encounter_csn")], by = "encounter_csn") |> 
+    select(mrn, encounter_csn, everything()) |> 
+    arrange(mrn, encounter_csn, dose_start, medication)
+
+data_meds <- df_meds_anticoag |> 
+    bind_rows(df_meds_antiplt, df_meds_nsaids, df_meds_steroids) |> 
+    inner_join(df_patients[c("mrn", "encounter_csn")], by = "encounter_csn") |> 
+    select(mrn, encounter_csn, everything()) |> 
+    arrange(mrn, encounter_csn, dose_start, medication)
+
+data_drips <- df_drips
+
+l <- list(
+    "patients" = data_patients,
+    "labs_daily" = data_labs_daily,
+    "vitals_daily" = data_vitals_daily,
+    "sup_doses" = data_sup,
+    "other_meds" = data_meds,
+    "anticoag_drips" = data_drips
+)
+
+write.xlsx(l, paste0(f, "final/sup_7jones_data_expanded.xlsx"), overwrite = TRUE)
