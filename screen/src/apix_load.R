@@ -18,8 +18,8 @@ raw_meds <- read_excel(
 
 df_apix_start <- raw_meds |> 
     filter(
-        str_detect(order_name, "apixaban"),
-        str_detect(nurse_unit, "JONES")
+        str_detect(order_name, "apixaban")
+        # str_detect(nurse_unit, "JONES")
     ) |> 
     distinct(mrn, encounter_csn, .keep_all = TRUE) |> 
     mutate(apix_load = dose >= 10) |> 
