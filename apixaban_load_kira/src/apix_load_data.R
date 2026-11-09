@@ -61,6 +61,8 @@ df_apix_dur <- raw_meds |>
     filter(apix_dur >= 2) |> 
     distinct(mrn, .keep_all = TRUE)
 
+write.xlsx(df_apix_dur[c("mrn", "encounter_csn")], paste0(f, "final/prelim_apix_pts.xlsx"), overwrite = TRUE)
+
 df_demog <- raw_demog |> 
     inner_join(df_apix_dur, by = c("mrn", "encounter_csn")) |> 
     mutate(
