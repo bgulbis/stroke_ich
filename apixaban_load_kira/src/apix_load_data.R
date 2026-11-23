@@ -67,7 +67,8 @@ df_demog <- raw_demog |>
     inner_join(df_apix_dur, by = c("mrn", "encounter_csn")) |> 
     mutate(
         apix_start_day = difftime(first_dose, admit_datetime, units = "days"),
-        across(apix_start_day, as.numeric)
+        across(apix_start_day, as.numeric),
+        across(apix_start_day, ceiling)
     )
 
 df_meds <- raw_meds |> 
@@ -75,8 +76,42 @@ df_meds <- raw_meds |>
     inner_join(df_demog[c("mrn", "encounter_csn", "admit_datetime", "apix_start_day")], by = c("mrn", "encounter_csn")) |> 
     mutate(
         med_hosp_day = difftime(med_datetime, admit_datetime, units = "days"),
-        across(med_hosp_day, as.numeric)
+        across(med_hosp_day, as.numeric),
+        across(med_hosp_day, ceiling),
+        across(medication, \(x)
+               coalesce(
+                   x, case_when(
+                       str_detect(order_name, "bivalirudin") ~ "bivalirudin",
+                       str_detect(order_name, "argatroban") ~ "argatroban",
+                       str_detect(order_name, "enoxaparin") ~ "enoxaparin sodium"
+                   )
+               )
+        ),
+        across(medication, \(x) str_remove_all(x, "\\(porcine\\) in nacl|sodium \\(porcine\\)|sodium|bisulfate")),
+        across(medication, str_trim)
     ) 
+
+# x <- filter(df_meds, is.na(medication))
+
+df_anticoag_load <- df_meds |> 
+    filter(
+        !(medication == "heparin" & route == "Subcutaneous"),
+        !(medication == "enoxaparin" & dose <= 40),
+        !(medication == "fondaparainux" & dose <= 2.5),
+        !(medication == "rivaroxaban" & dose <= 2.5),
+        !(medication %in% c("aspirin", "clopidogrel", "ticagrelor")),
+        dose > 0,
+        action %in% c("Given", "New Bag", "Rate Change", "Rate Verify", "Handoff"),
+        med_hosp_day >= apix_start_day - 7,
+        med_hosp_day <= apix_start_day,
+        medication != "apixaban"
+    ) |> 
+    distinct(mrn, encounter_csn, med_hosp_day) |> 
+    summarize(
+        load_days = n(),
+        .by = c(mrn, encounter_csn)
+    ) 
+    # pivot_wider(names_from = medication, values_from = load_days)
 
 df_apixaban <- df_meds |> 
     filter(
@@ -85,6 +120,39 @@ df_apixaban <- df_meds |>
     ) |> 
     mutate(across(medication, \(x) coalesce(x, "apixaban"))) |> 
     med_runtime(.id = encounter_csn)
+
+df_apix_load <- df_apixaban |> 
+    filter(dose == 10)
+
+df_rivaroxaban <- df_meds |> 
+    filter(
+        (medication == "rivaroxaban" | str_detect(order_name, "rivaroxaban")),
+        action == "Given"
+    ) |> 
+    mutate(across(medication, \(x) coalesce(x, "rivaroxaban"))) |> 
+    med_runtime(.id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        across(dose_start, min),
+        across(dose_stop, max),
+        across(dose, list(mean = mean, max = max, first = first, last = last)),
+        .by = c(encounter_csn, course_count)
+    )
+
+df_warfarin <- df_meds |> 
+    filter(
+        (medication == "warfarin" | str_detect(order_name, "warfarin")),
+        action == "Given"
+    ) |> 
+    mutate(across(medication, \(x) coalesce(x, "warfarin"))) |> 
+    med_runtime(.id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        across(dose_start, min),
+        across(dose_stop, max),
+        across(dose, list(mean = mean, max = max, first = first, last = last)),
+        .by = c(encounter_csn, course_count)
+    )
 
 df_hep_drip <- df_meds |> 
     filter(
@@ -100,6 +168,53 @@ df_hep_drip <- df_meds |>
     drip_runtime(.id = encounter_csn, .rate = dose, .rate_unit = dose_unit) |> 
     summarize_drips(.id = encounter_csn, .rate = dose, .rate_unit = dose_unit)
 
+df_enox <- df_meds |> 
+    filter(
+        (str_detect(medication, "enoxaparin") | str_detect(order_name, "enoxaparin")),
+        dose > 40,
+        action == "Given"
+    ) |> 
+    mutate(across(medication, \(x) coalesce(x, "enoxaparin"))) |> 
+    med_runtime(.id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        across(dose_start, min),
+        across(dose_stop, max),
+        across(dose, list(mean = mean, max = max, first = first, last = last)),
+        .by = c(encounter_csn, course_count)
+    )
+
+df_fondap <- df_meds |> 
+    filter(
+        (str_detect(medication, "fondaparinux") | str_detect(order_name, "fondaparinux")),
+        dose > 2.5,
+        action == "Given"
+    ) |> 
+    mutate(across(medication, \(x) coalesce(x, "fondaparinux"))) |> 
+    med_runtime(.id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        across(dose_start, min),
+        across(dose_stop, max),
+        across(dose, list(mean = mean, max = max, first = first, last = last)),
+        .by = c(encounter_csn, course_count)
+    )
+
+df_argatrob <- df_meds |> 
+    filter(
+        (str_detect(medication, "argatroban") | str_detect(order_name, "argatroban")),
+        route == "Intravenous",
+        freq == "Continuous",
+        action %in% c("New Bag", "Rate Change", "Rate Verify", "Stopped", "Held by provider", "Handoff")
+    ) |> 
+    mutate(
+        across(dose, \(x) if_else(action == "Held by provider", 0, x))
+        # across(dose_unit, \(x) coalesce(x, "Units/kg/hr"))
+    ) |> 
+    drip_runtime(.id = encounter_csn, .rate = dose, .rate_unit = dose_unit) |> 
+    summarize_drips(.id = encounter_csn, .rate = dose, .rate_unit = dose_unit) |> 
+    mutate(across(medication, \(x) coalesce(x, "argatroban")))
+
 df_antiplt <- df_meds |> 
     filter(
         (medication %in% c("aspirin", "clopidogrel bisulfate", "ticagrelor") | 
@@ -107,4 +222,11 @@ df_antiplt <- df_meds |>
         action == "Given"
     ) |> 
     # mutate(across(medication, \(x) coalesce(x, "apixaban"))) |> 
-    med_runtime(.id = encounter_csn)
+    med_runtime(.id = encounter_csn) |> 
+    summarize(
+        across(c(num_doses, duration), sum),
+        across(dose_start, min),
+        across(dose_stop, max),
+        across(dose, list(mean = mean, max = max, first = first, last = last)),
+        .by = c(encounter_csn, medication, course_count)
+    )
