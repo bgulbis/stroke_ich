@@ -69,7 +69,16 @@ df_demog <- raw_demog |>
         apix_start_day = difftime(first_dose, admit_datetime, units = "days"),
         across(apix_start_day, as.numeric),
         across(apix_start_day, ceiling)
-    )
+        # across(icu_los, \(x) str_split(x, "\r\n"))
+    ) |> 
+    separate_wider_delim(icu_los, "\r\n", names_sep = "_", too_few = "align_start") |> 
+    mutate(
+        across(starts_with("icu_los"), as.numeric),
+        icu_los = sum(icu_los_1, icu_los_2, icu_los_3, icu_los_4, icu_los_5, icu_los_6, icu_los_7, na.rm = TRUE),
+        .by = c(mrn, encounter_csn)
+    ) |> 
+    select(mrn:length_stay, icu_los, everything(), -los_days, -starts_with("icu_los_"))
+    
 
 df_meds <- raw_meds |> 
     # semi_join(df_apix_dur, by = c("mrn", "encounter_csn")) |> 
@@ -122,7 +131,16 @@ df_apixaban <- df_meds |>
     med_runtime(.id = encounter_csn)
 
 df_apix_load <- df_apixaban |> 
-    filter(dose == 10)
+    filter(dose == 10) |> 
+    select(encounter_csn, apix_10mg_doses = num_doses)
+
+data_patients <- df_demog |> 
+    left_join(df_apix_load, by = "encounter_csn") |> 
+    left_join(df_anticoag_load, by = c("mrn", "encounter_csn")) |> 
+    mutate(no_load = is.na(apix_10mg_doses) & is.na(load_days))
+
+write.xlsx(data_patients, paste0(f, "final/prelim_apxi_data.xlsx"), overwrite = TRUE)
+
 
 df_rivaroxaban <- df_meds |> 
     filter(
